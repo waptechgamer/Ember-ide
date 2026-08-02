@@ -1,0 +1,19 @@
+# Environment / Virtual Environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Build & Distribution artifacts
+build/
+dist/
+*.spec
+
+# Test logs & scratch output
+smoke_log.txt
+launch_output.txt
+environment_report.txt
+
+# Temporary scripts
+__distill_query*.py
+__dream_query*.py

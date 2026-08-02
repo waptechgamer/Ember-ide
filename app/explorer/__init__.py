@@ -1,0 +1,1 @@
+"""Ember IDE — explorer package."""
