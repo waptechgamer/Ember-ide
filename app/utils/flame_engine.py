@@ -28,6 +28,7 @@ def convert_flame_file(path: Path) -> Tuple[str, Path]:
         "python": ".py", "py": ".py",
         "javascript": ".js", "js": ".js",
         "typescript": ".ts", "ts": ".ts",
+        "react": ".jsx", "vue": ".vue", "svelte": ".svelte",
         "c": ".c", "cpp": ".cpp", "c++": ".cpp",
         "rust": ".rs", "rs": ".rs",
         "go": ".go", "golang": ".go",
@@ -35,7 +36,10 @@ def convert_flame_file(path: Path) -> Tuple[str, Path]:
         "java": ".java", "kotlin": ".kt", "swift": ".swift",
         "ruby": ".rb", "rb": ".rb",
         "php": ".php", "lua": ".lua", "bash": ".sh", "sh": ".sh",
-        "powershell": ".ps1", "sql": ".sql", "r": ".r"
+        "powershell": ".ps1", "sql": ".sql", "r": ".r",
+        "zig": ".zig", "haskell": ".hs", "hs": ".hs",
+        "elixir": ".ex", "ex": ".ex", "ocaml": ".ml", "ml": ".ml",
+        "assembly": ".asm", "asm": ".asm", "c#": ".cs", "csharp": ".cs"
     }
     ext = ext_map.get(target_lang, f".{target_lang}")
     target_path = path.with_suffix(ext)

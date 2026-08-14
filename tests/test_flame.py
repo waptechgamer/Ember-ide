@@ -34,6 +34,48 @@ class TestFlameEngine(unittest.TestCase):
         self.assertTrue(target_path.exists())
         self.assertIn("console.log", code)
 
+    def test_dynamic_extensions(self):
+        # Testing specific mappings requested in requirements
+        test_cases = [
+            ("zig", ".zig"),
+            ("haskell", ".hs"),
+            ("react", ".jsx"),
+            ("svelte", ".svelte"),
+            ("elixir", ".ex"),
+            ("ocaml", ".ml"),
+            ("assembly", ".asm"),
+        ]
+        for lang, expected_ext in test_cases:
+            flame_file = self.dir_path / f"test_{lang}.flame"
+            flame_file.write_text(f"@target {lang}\nsome content", encoding="utf-8")
+            _, target_path = convert_flame_file(flame_file)
+            self.assertEqual(target_path.suffix, expected_ext)
+
+    def test_future_language_compatibility(self):
+        # A completely unknown/future language should dynamically fall back to f".{target_lang}"
+        flame_file = self.dir_path / "test_future.flame"
+        flame_file.write_text("@target crystal\nsome content", encoding="utf-8")
+        _, target_path = convert_flame_file(flame_file)
+        self.assertEqual(target_path.suffix, ".crystal")
+
+    def test_preview_dialog_compiles(self):
+        # Ensure FlamePreviewDialog compiles and is importable
+        from app.main_window import FlamePreviewDialog
+        from PyQt5.QtWidgets import QApplication
+        import sys
+
+        # Ensure QApplication instance exists for widget testing
+        app = QApplication.instance() or QApplication(sys.argv)
+        dialog = FlamePreviewDialog(
+            parent=None,
+            filename="test.flame",
+            detected_lang="python",
+            initial_code="print('hello')",
+            default_export_path=self.dir_path / "test.py"
+        )
+        self.assertEqual(dialog.editor.toPlainText(), "print('hello')")
+        self.assertFalse(dialog.run_after_export)
+
     def test_validate_and_clean_code(self):
         raw_md = "```python\nprint('hello')\n```"
         clean = validate_and_clean_code(raw_md, "python")

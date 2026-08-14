@@ -8,7 +8,7 @@ from PyQt5.QtGui import QIcon, QKeySequence
 from PyQt5.QtWidgets import (
     QAction, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QSplitter, QStatusBar, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QDialog, QTextEdit,
 )
 
 from app.editor.tabbed_editor import TabbedEditor
@@ -378,11 +378,36 @@ class MainWindow(QMainWindow):
         if path and path.suffix.lower() == ".flame":
             self._status.showMessage("Running Flame AI Conversion Engine...", 5000)
             try:
-                from app.utils.flame_engine import convert_flame_file
-                code, target_path = convert_flame_file(path)
-                self._status.showMessage(f"Flame converted successfully! Opened {target_path.name}", 5000)
-                self.editor.open_file(target_path)
-                QTimer.singleShot(500, self._action_run)
+                import re
+                content = path.read_text(encoding="utf-8")
+                target_lang = "python"
+                match = re.search(r"@target\s+(\w+)", content, re.IGNORECASE)
+                if match:
+                    target_lang = match.group(1).lower().strip()
+
+                from app.utils.flame_engine import call_ai_for_conversion, validate_and_clean_code, convert_flame_file
+                generated_raw = call_ai_for_conversion(content, target_lang)
+                code = validate_and_clean_code(generated_raw, target_lang)
+
+                _, default_target_path = convert_flame_file(path)
+
+                dialog = FlamePreviewDialog(
+                    parent=self,
+                    filename=path.name,
+                    detected_lang=target_lang,
+                    initial_code=code,
+                    default_export_path=default_target_path
+                )
+
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    final_path = dialog.exported_path or default_target_path
+                    self._status.showMessage(f"Flame saved/exported to {final_path.name}", 5000)
+                    self.editor.open_file(final_path)
+
+                    if dialog.run_after_export:
+                        QTimer.singleShot(500, self._action_run)
+                else:
+                    self._status.showMessage("Flame conversion cancelled", 3000)
                 return
             except Exception as exc:
                 QMessageBox.warning(self, "Flame AI Engine", f"Conversion failed: {exc}")
@@ -689,3 +714,104 @@ class TerminalPanel(QWidget):
         idx = self._tabs.indexOf(widget)
         if idx >= 0:
             self._on_close(idx)
+
+
+# ---------------------------------------------------------------------------
+# FlamePreviewDialog — VS Code-inspired AI generated code review & edit
+# ---------------------------------------------------------------------------
+
+class FlamePreviewDialog(QDialog):
+    """Modern VS Code-inspired interactive dialog for reviewing, editing, and exporting AI generated code."""
+
+    def __init__(self, parent: QWidget | None, filename: str, detected_lang: str, initial_code: str, default_export_path: Path) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Flame AI Conversion Preview — {filename}")
+        self.resize(750, 550)
+        self.setMinimumSize(500, 400)
+
+        self.default_export_path = default_export_path
+        self.exported_path = None
+        self.run_after_export = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Detected language line
+        info_layout = QHBoxLayout()
+        info_label = QLabel(f"<b>Target Language:</b> <span style='color: {PALETTE['success']};'>{detected_lang.upper()}</span>")
+        info_label.setStyleSheet(f"font-size: 13px; color: {PALETTE['fg']};")
+        info_layout.addWidget(info_label)
+        info_layout.addStretch()
+        layout.addLayout(info_layout)
+
+        # Subtitle instructions
+        sub_label = QLabel("Preview and edit the AI-generated code. Use 'Export' to save elsewhere, or 'Save & Run' to execute.")
+        sub_label.setWordWrap(True)
+        sub_label.setStyleSheet(f"color: {PALETTE['fg_dim']}; font-size: 11px;")
+        layout.addWidget(sub_label)
+
+        # Edit text widget (preview & edit)
+        self.editor = QTextEdit()
+        self.editor.setPlainText(initial_code)
+        self.editor.setLineWrapMode(QTextEdit.NoWrap)
+        self.editor.setStyleSheet(f"""
+            QTextEdit {{
+                background: {PALETTE['bg_sunken']};
+                color: {PALETTE['fg']};
+                border: 1px solid {PALETTE['border']};
+                border-radius: 4px;
+                font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monospace';
+                font-size: 12px;
+                padding: 8px;
+            }}
+            QTextEdit:focus {{
+                border-color: {PALETTE['accent']};
+            }}
+        """)
+        layout.addWidget(self.editor, 1)
+
+        # Buttons layout
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.setObjectName("welcomeBtnSecondary")
+        self.btn_cancel.clicked.connect(self.reject)
+
+        self.btn_export = QPushButton("Export...")
+        self.btn_export.setObjectName("welcomeBtnSecondary")
+        self.btn_export.clicked.connect(self._on_export)
+
+        self.btn_run = QPushButton("Save & Run")
+        self.btn_run.setObjectName("welcomeBtnPrimary")
+        self.btn_run.clicked.connect(self._on_run)
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_export)
+        btn_layout.addWidget(self.btn_run)
+
+        layout.addLayout(btn_layout)
+
+    def _on_export(self) -> None:
+        start_dir = str(self.default_export_path.parent)
+        suggested = self.default_export_path.name
+        chosen, _ = QFileDialog.getSaveFileName(self, "Export Flame Generated Code", f"{start_dir}/{suggested}")
+        if chosen:
+            self.default_export_path = Path(chosen)
+            self._save_to_path()
+            QMessageBox.information(self, "Flame AI Engine", f"Code exported and saved successfully to:\n{chosen}")
+            self.exported_path = self.default_export_path
+            self.accept()
+
+    def _on_run(self) -> None:
+        self._save_to_path()
+        self.exported_path = self.default_export_path
+        self.run_after_export = True
+        self.accept()
+
+    def _save_to_path(self) -> None:
+        edited_code = self.editor.toPlainText()
+        from app.utils.file_utils import safe_write
+        safe_write(self.default_export_path, edited_code)
