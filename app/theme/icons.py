@@ -307,4 +307,4 @@ def _paint_flame(p: QPainter, rect: QRectF, size: int) -> None:
 
 
 def icon_flame(size: int = 16) -> QIcon:
-    return QIcon(_pixmap(size, _paint_flame, "#ff5722"))
+    return QIcon(_pixmap(size, _paint_flame))

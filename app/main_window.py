@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt5.QtCore import QSize, Qt
+from PyQt5.QtCore import QSize, Qt, QTimer
 from PyQt5.QtGui import QIcon, QKeySequence
 from PyQt5.QtWidgets import (
     QAction, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
@@ -374,6 +374,20 @@ class MainWindow(QMainWindow):
         self.editor.close_current()
 
     def _action_run(self) -> None:
+        path = self.editor.current_path()
+        if path and path.suffix.lower() == ".flame":
+            self._status.showMessage("Running Flame AI Conversion Engine...", 5000)
+            try:
+                from app.utils.flame_engine import convert_flame_file
+                code, target_path = convert_flame_file(path)
+                self._status.showMessage(f"Flame converted successfully! Opened {target_path.name}", 5000)
+                self.editor.open_file(target_path)
+                QTimer.singleShot(500, self._action_run)
+                return
+            except Exception as exc:
+                QMessageBox.warning(self, "Flame AI Engine", f"Conversion failed: {exc}")
+                return
+
         request = self.editor.run_current()
         if request is None:
             self._status.showMessage("Nothing to run for the current file", 3000)
