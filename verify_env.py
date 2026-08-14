@@ -16,7 +16,7 @@ import sysconfig
 from pathlib import Path
 
 REQUIRED = {
-    "PySide6": ("PySide6", "PySide6.QtWidgets"),
+    "PyQt5": ("PyQt5", "PyQt5.QtWidgets"),
     "QScintilla": ("PyQt5.Qsci", None),  # current QScintilla wheels bind to PyQt5
     "python-lsp-server": ("pylsp", None),
     "jedi": ("jedi", None),
@@ -27,7 +27,7 @@ REQUIRED = {
 
 # Distribution names → importable module names (canonical case matters on Windows)
 DIST_VERSION_PKGS = {
-    "PySide6": "PySide6",
+    "PyQt5": "PyQt5",
     "QScintilla": "QScintilla",
     "python-lsp-server": "python-lsp-server",
     "jedi": "jedi",
