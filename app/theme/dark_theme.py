@@ -654,6 +654,7 @@ LANG_LEXERS = {
     ".html": ("QsciLexerHTML",),
     ".css":  ("QsciLexerCSS",),
     ".md":   ("QsciLexerMarkdown",),
+    ".flame": ("QsciLexerMarkdown",),
     ".c":    ("QsciLexerCPP",),       # QScintilla builds vary; CPP covers C too
     ".cpp":  ("QsciLexerCPP",),
     ".h":    ("QsciLexerCPP",),
@@ -686,6 +687,7 @@ def pick_lexer_class(suffix: str):
         ".html": QsciLexerHTML,
         ".css":  QsciLexerCSS,
         ".md":   QsciLexerMarkdown,
+        ".flame": QsciLexerMarkdown,
         ".c":    QsciLexerCPP,
         ".cpp":  QsciLexerCPP,
         ".h":    QsciLexerCPP,

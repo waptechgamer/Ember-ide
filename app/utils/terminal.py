@@ -107,6 +107,146 @@ _OSC_RE = re.compile(r"\x1B\]([^\x07\x1B]*(?:\x07|\x1B\\))")
 
 
 @dataclass
+class RunRequest:
+    command: str
+    cwd: Path
+
+
+class _Format:
+    def __init__(self) -> None:
+        self.fg: Optional[str] = None
+        self.bg: Optional[str] = None
+        self.bold: bool = False
+        self.underline: bool = False
+
+
+def _parse_ansi(text: str, fmt: _Format) -> List[Tuple[str, Optional[str]]]:
+    spans: List[Tuple[str, Optional[str]]] = []
+    current_idx = 0
+    while current_idx < len(text):
+        esc_idx = text.find("\x1B", current_idx)
+        if esc_idx == -1:
+            plain = text[current_idx:]
+            if plain:
+                spans.append((plain, fmt.fg))
+            break
+
+        plain = text[current_idx:esc_idx]
+        if plain:
+            spans.append((plain, fmt.fg))
+
+        csi_match = _CSI_RE.match(text, esc_idx)
+        if csi_match:
+            params_str = csi_match.group(1)
+            final = csi_match.group(2)
+            if final == "m":
+                try:
+                    params = [int(x) if x else 0 for x in params_str.split(";")]
+                except ValueError:
+                    params = [0]
+                if not params:
+                    params = [0]
+
+                i = 0
+                while i < len(params):
+                    p = params[i]
+                    if p == 0:
+                        fmt.fg = None
+                        fmt.bg = None
+                        fmt.bold = False
+                        fmt.underline = False
+                    elif p == 1:
+                        fmt.bold = True
+                    elif p == 4:
+                        fmt.underline = True
+                    elif p == 22:
+                        fmt.bold = False
+                    elif p == 24:
+                        fmt.underline = False
+                    elif p == 39:
+                        fmt.fg = None
+                    elif p == 49:
+                        fmt.bg = None
+                    elif 30 <= p <= 37:
+                        fmt.fg = _ANSI_16[p - 30]
+                    elif 40 <= p <= 47:
+                        fmt.bg = _ANSI_16[p - 40]
+                    elif 90 <= p <= 97:
+                        fmt.fg = _ANSI_16[p - 90 + 8]
+                    elif 100 <= p <= 107:
+                        fmt.bg = _ANSI_16[p - 100 + 8]
+                    elif p in (38, 48) and i + 1 < len(params):
+                        if params[i + 1] == 2 and i + 4 < len(params):
+                            r, g, b = params[i+2], params[i+3], params[i+4]
+                            hex_color = f"#{max(0,min(255,r)):02x}{max(0,min(255,g)):02x}{max(0,min(255,b)):02x}"
+                            if p == 38:
+                                fmt.fg = hex_color
+                            else:
+                                fmt.bg = hex_color
+                            i += 4
+                        elif params[i + 1] == 5 and i + 2 < len(params):
+                            n = params[i + 2]
+                            if n < 16:
+                                hex_color = _ANSI_16[n]
+                            elif n < 232:
+                                idx = n - 16
+                                rv = (idx // 36) % 6
+                                gv = (idx // 6) % 6
+                                bv = idx % 6
+                                r = 40+rv*40 if rv else 0
+                                g = 40+gv*40 if gv else 0
+                                b = 40+bv*40 if bv else 0
+                                hex_color = f"#{r:02x}{g:02x}{b:02x}"
+                            else:
+                                v = 8 + (n - 232) * 10
+                                hex_color = f"#{v:02x}{v:02x}{v:02x}"
+                            if p == 38:
+                                fmt.fg = hex_color
+                            else:
+                                fmt.bg = hex_color
+                            i += 2
+                    i += 1
+            current_idx = csi_match.end()
+            continue
+
+        osc_match = _OSC_RE.match(text, esc_idx)
+        if osc_match:
+            current_idx = osc_match.end()
+            continue
+
+        if esc_idx + 1 < len(text):
+            current_idx = esc_idx + 2
+        else:
+            current_idx = esc_idx + 1
+
+    return spans
+
+
+def strip_ansi(text: str) -> str:
+    text = _CSI_RE.sub("", text)
+    text = _OSC_RE.sub("", text)
+    return text
+
+
+def build_prompt(cwd: Path) -> Tuple[str, List[Tuple[str, str]]]:
+    path_str = shorten_home(cwd)
+    if is_windows():
+        plain = f"{path_str}> "
+        rich = [(path_str, "#6cb6ff"), ("> ", "#7ec699")]
+    elif is_macos():
+        plain = f"{path_str} % "
+        rich = [(path_str, "#6cb6ff"), (" % ", "#7ec699")]
+    else:
+        plain = f"{path_str} $ "
+        rich = [(path_str, "#6cb6ff"), (" $ ", "#7ec699")]
+    return plain, rich
+
+
+def clear_command() -> str:
+    return "cls" if is_windows() else "clear"
+
+
+@dataclass
 class Cell:
     """One character cell in the terminal buffer."""
     char: str = " "
@@ -751,6 +891,7 @@ class TerminalWidget(QWidget):
     def __init__(self, parent: QWidget | None = None, cwd: Optional[Path] = None) -> None:
         super().__init__(parent)
         self._cwd = Path(cwd or Path.cwd()).resolve()
+        self._display_cwd = self._cwd
         self._history: List[str] = load_history()
         self._history_index = 0
         self._retired: List[_ShellProcess] = []
@@ -867,6 +1008,58 @@ class TerminalWidget(QWidget):
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._recalc_size()
+
+    def _predictive_cd_update(self, command_str: str) -> None:
+        cmd = command_str.strip()
+        if cmd == "cd":
+            self._display_cwd = Path.home()
+        elif cmd.startswith("cd "):
+            path_part = cmd[3:].strip()
+            if not path_part:
+                self._display_cwd = Path.home()
+            else:
+                is_abs = (
+                    path_part.startswith("/") or
+                    path_part.startswith("\\") or
+                    (len(path_part) >= 2 and path_part[1] == ":" and path_part[0].isalpha())
+                )
+                if is_abs:
+                    self._display_cwd = Path(path_part)
+                else:
+                    self._display_cwd = (self._display_cwd / path_part).resolve()
+
+    def _append_plain(self, text: str, spans: list = None) -> None:
+        if spans:
+            for span_text, span_color in spans:
+                if span_color:
+                    self._term.fg = QColor(span_color)
+                else:
+                    self._term.fg = None
+                for char in span_text:
+                    if char == "\n":
+                        self._term.cursor_row += 1
+                        if self._term.cursor_row > self._term.scroll_bottom:
+                            self._term.scroll_up(1)
+                            self._term.cursor_row = self._term.scroll_bottom
+                        self._term.cursor_col = 0
+                    elif char == "\r":
+                        self._term.cursor_col = 0
+                    else:
+                        self._term.set_cell(char)
+        else:
+            for char in text:
+                if char == "\n":
+                    self._term.cursor_row += 1
+                    if self._term.cursor_row > self._term.scroll_bottom:
+                        self._term.scroll_up(1)
+                        self._term.cursor_row = self._term.scroll_bottom
+                    self._term.cursor_col = 0
+                elif char == "\r":
+                    self._term.cursor_col = 0
+                else:
+                    self._term.set_cell(char)
+        self._term.dirty = True
+        self._render_view()
 
     # ---------------------------------------------------------------- private
 

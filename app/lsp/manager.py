@@ -1,9 +1,9 @@
 """LSP manager — lifecycle management for language servers."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from app.lsp.client import LspClient
 from app.lsp.languages import Language, language_registry
@@ -15,6 +15,7 @@ class LspConfig:
     """Configuration for the LSP manager."""
     enabled: bool = True
     max_concurrent_servers: int = 5
+    settings: Dict[str, Any] = field(default_factory=dict)
 
 
 class LspManager:
@@ -42,7 +43,8 @@ class LspManager:
             return None
 
         client = LspClient(spec.command, cwd=path.parent)
-        if client.start():
+        init_options = self._config.settings.get(language.lsp_language_id) or self._config.settings.get(language.server_name)
+        if client.start(initialization_options=init_options):
             self._clients[language.server_name] = client
             return client
         return None
