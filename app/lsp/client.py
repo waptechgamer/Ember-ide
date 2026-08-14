@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from app.lsp.types import (
     CompletionItem, Diagnostic, DiagnosticSeverity, Hover, Location,
-    Position, Range, SignatureHelp, WorkspaceEdit,
+    Position, Range, SignatureHelp, WorkspaceEdit, DocumentSymbol, SymbolInformation, CodeAction,
 )
 
 
@@ -25,8 +25,12 @@ class LspClient:
         self._callbacks: Dict[int, threading.Event] = {}
         self._responses: Dict[int, Any] = {}
         self._running = False
+        self._notification_handlers: Dict[str, Any] = {}
 
-    def start(self) -> bool:
+    def register_notification_handler(self, method: str, handler: Any) -> None:
+        self._notification_handlers[method] = handler
+
+    def start(self, initialization_options: Optional[Dict[str, Any]] = None) -> bool:
         try:
             self._proc = subprocess.Popen(
                 self._command,
@@ -37,7 +41,7 @@ class LspClient:
             )
             self._running = True
             threading.Thread(target=self._read_loop, daemon=True).start()
-            self.initialize()
+            self.initialize(initialization_options)
             return True
         except Exception:
             return False
@@ -68,9 +72,18 @@ class LspClient:
                 if content_length > 0:
                     body = self._proc.stdout.read(content_length)
                     msg = json.loads(body.decode("utf-8"))
-                    if "id" in msg and msg["id"] in self._callbacks:
-                        self._responses[msg["id"]] = msg.get("result")
-                        self._callbacks[msg["id"]].set()
+                    if "id" in msg:
+                        if msg["id"] in self._callbacks:
+                            self._responses[msg["id"]] = msg.get("result")
+                            self._callbacks[msg["id"]].set()
+                    elif "method" in msg:
+                        method = msg["method"]
+                        params = msg.get("params")
+                        if method in self._notification_handlers:
+                            try:
+                                self._notification_handlers[method](params)
+                            except Exception:
+                                pass
         except Exception:
             pass
 
@@ -99,11 +112,26 @@ class LspClient:
             event.wait(timeout)
         return self._responses.pop(msg_id, None)
 
-    def initialize(self) -> Any:
+    def initialize(self, initialization_options: Optional[Dict[str, Any]] = None) -> Any:
         return self._call("initialize", {
             "processId": None,
             "rootUri": None,
-            "capabilities": {},
+            "capabilities": {
+                "textDocument": {
+                    "completion": {"completionItem": {"snippetSupport": True}},
+                    "hover": {},
+                    "definition": {},
+                    "references": {},
+                    "rename": {},
+                    "signatureHelp": {},
+                    "documentSymbol": {},
+                    "codeAction": {},
+                },
+                "workspace": {
+                    "symbol": {},
+                }
+            },
+            "initializationOptions": initialization_options or {},
         })
 
     def did_open(self, uri: str, language_id: str, text: str, version: int = 1) -> None:
@@ -153,3 +181,50 @@ class LspClient:
         if not result:
             return []
         return [Location.from_lsp(loc) for loc in result if loc]
+
+    def rename(self, uri: str, line: int, character: int, new_name: str) -> Optional[WorkspaceEdit]:
+        result = self._call("textDocument/rename", {
+            "textDocument": {"uri": uri},
+            "position": {"line": line, "character": character},
+            "newName": new_name,
+        })
+        return WorkspaceEdit.from_lsp(result) if result else None
+
+    def signature_help(self, uri: str, line: int, character: int) -> Optional[SignatureHelp]:
+        result = self._call("textDocument/signatureHelp", {
+            "textDocument": {"uri": uri},
+            "position": {"line": line, "character": character},
+        })
+        return SignatureHelp.from_lsp(result) if result else None
+
+    def document_symbol(self, uri: str) -> List[Any]:
+        result = self._call("textDocument/documentSymbol", {
+            "textDocument": {"uri": uri},
+        })
+        if not result:
+            return []
+        out: List[Any] = []
+        for item in result:
+            if "range" in item:
+                out.append(DocumentSymbol.from_lsp(item))
+            else:
+                out.append(SymbolInformation.from_lsp(item))
+        return out
+
+    def workspace_symbol(self, query: str) -> List[SymbolInformation]:
+        result = self._call("workspace/symbol", {
+            "query": query,
+        })
+        if not result:
+            return []
+        return [SymbolInformation.from_lsp(i) for i in result if i]
+
+    def code_action(self, uri: str, range: Range, context: Dict[str, Any]) -> List[CodeAction]:
+        result = self._call("textDocument/codeAction", {
+            "textDocument": {"uri": uri},
+            "range": range.to_lsp(),
+            "context": context,
+        })
+        if not result:
+            return []
+        return [CodeAction.from_lsp(i) for i in result if i]
