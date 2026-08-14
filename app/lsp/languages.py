@@ -43,6 +43,7 @@ class LanguageRegistry:
             Language("SQL", [".sql"], "sql", "sql-language-server"),
             Language("Rust", [".rs"], "rust", "rust-analyzer"),
             Language("Go", [".go"], "go", "gopls"),
+            Language("Flame", [".flame"], "flame", ""),
         ])
 
     def register(self, language: Language) -> None:

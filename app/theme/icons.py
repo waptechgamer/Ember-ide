@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import (
-    QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF,
+    QBrush, QColor, QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QIcon,
 )
 
 
@@ -287,3 +287,24 @@ def icon_arrow_up(size: int = 16) -> QPixmap:
 
 def icon_arrow_down(size: int = 16) -> QPixmap:
     return _pixmap(size, _paint_arrow_down)
+
+
+# ---------------------------------------------------------------------------
+# Flame icon — a modern, custom-painted flame path (Codicon-style)
+# ---------------------------------------------------------------------------
+
+def _paint_flame(p: QPainter, rect: QRectF, size: int) -> None:
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor("#ff5722"))  # Energetic flame orange
+    path = QPainterPath()
+    cx = size / 2
+    path.moveTo(cx, size * 0.85)
+    path.cubicTo(cx + size * 0.35, size * 0.7, cx + size * 0.25, size * 0.35, cx + size * 0.05, size * 0.15)
+    path.cubicTo(cx + size * 0.1, size * 0.35, cx - size * 0.05, size * 0.5, cx - size * 0.1, size * 0.55)
+    path.cubicTo(cx - size * 0.2, size * 0.45, cx - size * 0.25, size * 0.35, cx - size * 0.3, size * 0.25)
+    path.cubicTo(cx - size * 0.4, size * 0.5, cx - size * 0.35, size * 0.8, cx, size * 0.85)
+    p.drawPath(path)
+
+
+def icon_flame(size: int = 16) -> QIcon:
+    return QIcon(_pixmap(size, _paint_flame, "#ff5722"))

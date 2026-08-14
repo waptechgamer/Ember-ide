@@ -7,11 +7,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QDir, QModelIndex, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor
+from PyQt5.QtCore import QDir, QModelIndex, Qt, pyqtSignal, QFileInfo
+from PyQt5.QtGui import QBrush, QColor, QIcon
 from PyQt5.QtWidgets import (
-    QAbstractItemView, QHeaderView, QTreeView, QWidget,
+    QAbstractItemView, QHeaderView, QTreeView, QWidget, QFileIconProvider,
 )
+from app.theme.icons import icon_flame
+
+
+class FlameFileIconProvider(QFileIconProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self._flame_icon = icon_flame(16)
+
+    def icon(self, info: QFileInfo) -> QIcon:
+        if isinstance(info, QFileInfo):
+            if info.suffix().lower() == "flame":
+                return self._flame_icon
+        return super().icon(info)
 
 from app.theme.dark_theme import PALETTE
 from app.utils.file_utils import is_hidden, normalize
@@ -29,6 +42,8 @@ class FileExplorer(QWidget):
         from PyQt5.QtWidgets import QFileSystemModel, QVBoxLayout  # local import
 
         self._model = QFileSystemModel(self)
+        self._icon_provider = FlameFileIconProvider()
+        self._model.setIconProvider(self._icon_provider)
         self._model.setReadOnly(False)
         # show all files (we grey out hidden ones visually)
         self._model.setNameFilterDisables(False)
