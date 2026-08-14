@@ -378,18 +378,13 @@ class MainWindow(QMainWindow):
         if path and path.suffix.lower() == ".flame":
             self._status.showMessage("Running Flame AI Conversion Engine...", 5000)
             try:
-                import re
                 content = path.read_text(encoding="utf-8")
-                target_lang = "python"
-                match = re.search(r"@target\s+(\w+)", content, re.IGNORECASE)
-                if match:
-                    target_lang = match.group(1).lower().strip()
+                from app.utils.flame_engine import detect_target_lang, get_target_path, call_ai_for_conversion, validate_and_clean_code
+                target_lang = detect_target_lang(content)
+                default_target_path = get_target_path(path, target_lang)
 
-                from app.utils.flame_engine import call_ai_for_conversion, validate_and_clean_code, convert_flame_file
                 generated_raw = call_ai_for_conversion(content, target_lang)
                 code = validate_and_clean_code(generated_raw, target_lang)
-
-                _, default_target_path = convert_flame_file(path)
 
                 dialog = FlamePreviewDialog(
                     parent=self,

@@ -7,6 +7,36 @@ from pathlib import Path
 import requests
 from typing import Tuple, Dict, Any
 
+EXT_MAP = {
+    "python": ".py", "py": ".py",
+    "javascript": ".js", "js": ".js",
+    "typescript": ".ts", "ts": ".ts",
+    "react": ".jsx", "vue": ".vue", "svelte": ".svelte",
+    "c": ".c", "cpp": ".cpp", "c++": ".cpp",
+    "rust": ".rs", "rs": ".rs",
+    "go": ".go", "golang": ".go",
+    "html": ".html", "css": ".css",
+    "java": ".java", "kotlin": ".kt", "swift": ".swift",
+    "ruby": ".rb", "rb": ".rb",
+    "php": ".php", "lua": ".lua", "bash": ".sh", "sh": ".sh",
+    "powershell": ".ps1", "sql": ".sql", "r": ".r",
+    "zig": ".zig", "haskell": ".hs", "hs": ".hs",
+    "elixir": ".ex", "ex": ".ex", "ocaml": ".ml", "ml": ".ml",
+    "assembly": ".asm", "asm": ".asm", "c#": ".cs", "csharp": ".cs"
+}
+
+def detect_target_lang(content: str) -> str:
+    """Extracts target language from @target directive without truncating symbols like c++ or c#."""
+    match = re.search(r"@target\s+(\S+)", content, re.IGNORECASE)
+    if match:
+        return match.group(1).lower().strip()
+    return "python"
+
+def get_target_path(path: Path, target_lang: str) -> Path:
+    """Computes target file path based on target language extension."""
+    ext = EXT_MAP.get(target_lang, f".{target_lang}")
+    return path.with_suffix(ext)
+
 def convert_flame_file(path: Path) -> Tuple[str, Path]:
     """
     Reads the complete .flame file, detects target language from @target,
@@ -14,43 +44,13 @@ def convert_flame_file(path: Path) -> Tuple[str, Path]:
 
     Returns a tuple of (generated_code, target_file_path).
     """
-    # 1. Read complete .flame file
     content = path.read_text(encoding="utf-8")
+    target_lang = detect_target_lang(content)
+    target_path = get_target_path(path, target_lang)
 
-    # 2. Detect target language from @target
-    target_lang = "python"  # default
-    match = re.search(r"@target\s+(\w+)", content, re.IGNORECASE)
-    if match:
-        target_lang = match.group(1).lower().strip()
-
-    # Map target language to standard file extensions
-    ext_map = {
-        "python": ".py", "py": ".py",
-        "javascript": ".js", "js": ".js",
-        "typescript": ".ts", "ts": ".ts",
-        "react": ".jsx", "vue": ".vue", "svelte": ".svelte",
-        "c": ".c", "cpp": ".cpp", "c++": ".cpp",
-        "rust": ".rs", "rs": ".rs",
-        "go": ".go", "golang": ".go",
-        "html": ".html", "css": ".css",
-        "java": ".java", "kotlin": ".kt", "swift": ".swift",
-        "ruby": ".rb", "rb": ".rb",
-        "php": ".php", "lua": ".lua", "bash": ".sh", "sh": ".sh",
-        "powershell": ".ps1", "sql": ".sql", "r": ".r",
-        "zig": ".zig", "haskell": ".hs", "hs": ".hs",
-        "elixir": ".ex", "ex": ".ex", "ocaml": ".ml", "ml": ".ml",
-        "assembly": ".asm", "asm": ".asm", "c#": ".cs", "csharp": ".cs"
-    }
-    ext = ext_map.get(target_lang, f".{target_lang}")
-    target_path = path.with_suffix(ext)
-
-    # 3 & 4. Send to selected AI model & Ask AI to generate valid source code
     generated_code = call_ai_for_conversion(content, target_lang)
-
-    # 6. Validate/clean generated code
     validated_code = validate_and_clean_code(generated_code, target_lang)
 
-    # Save to the target path
     from app.utils.file_utils import safe_write
     safe_write(target_path, validated_code)
 
