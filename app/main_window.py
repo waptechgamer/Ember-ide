@@ -394,7 +394,7 @@ class MainWindow(QMainWindow):
                     default_export_path=default_target_path
                 )
 
-                if dialog.exec() == QDialog.DialogCode.Accepted:
+                if dialog.exec() == QDialog.Accepted:
                     final_path = dialog.exported_path or default_target_path
                     self._status.showMessage(f"Flame saved/exported to {final_path.name}", 5000)
                     self.editor.open_file(final_path)
@@ -673,6 +673,17 @@ class TerminalPanel(QWidget):
 
     def run_on_active(self, request) -> None:
         widget = self.current_widget() or self.new_tab()
+        idx = self._tabs.indexOf(widget)
+
+        import re
+        cmd = request.command.strip()
+        matches = re.findall(r'["\']?([^"\'\s]+\.[a-zA-Z0-9]+)["\']?', cmd)
+        file_name = Path(matches[-1]).name if matches else (cmd.split()[-1] if cmd.split() else "process")
+
+        if idx >= 0:
+            self._tabs.setTabText(idx, f"Terminal {idx + 1} — {file_name}")
+            self._tabs.setTabToolTip(idx, f"Running: {request.command}\nCWD: {request.cwd}")
+
         widget.run(request)
         widget.focus_input()
 
