@@ -903,6 +903,7 @@ class TerminalWidget(QWidget):
 
         # --- Terminal state ---
         self._term = _TermState()
+        self._fmt = _Format()
 
         # --- ANSI processor ---
         self._ansi = _AnsiProcessor(self._term)
@@ -992,7 +993,11 @@ class TerminalWidget(QWidget):
 
     def run(self, request) -> None:
         if self._proc:
-            self._proc.send(request.command + "\n")
+            if hasattr(request, "command"):
+                self._predictive_cd_update(request.command)
+                self._proc.send(request.command + "\n")
+            else:
+                self._proc.send(str(request) + "\n")
 
     def run_shell(self) -> None:
         self._start_shell()
@@ -1031,10 +1036,6 @@ class TerminalWidget(QWidget):
     def _append_plain(self, text: str, spans: list = None) -> None:
         if spans:
             for span_text, span_color in spans:
-                if span_color:
-                    self._term.fg = QColor(span_color)
-                else:
-                    self._term.fg = None
                 for char in span_text:
                     if char == "\n":
                         self._term.cursor_row += 1
@@ -1105,64 +1106,55 @@ class TerminalWidget(QWidget):
         self._stop_btn.setEnabled(True)
 
     def _on_output(self, text: str) -> None:
-        """Feed raw shell output into the ANSI processor."""
+        """Feed raw shell output into ANSI processor and update view matrix."""
         self._ansi.feed(text)
+        self._render_view()
 
     def _render_view(self) -> None:
-        """Periodically render terminal buffer to the QPlainTextEdit (60fps)."""
+        """Render terminal buffer state from _TermState with full ANSI cell formatting to QPlainTextEdit."""
         if not self._term.dirty:
             return
         self._term.dirty = False
 
         cursor = self._view.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        cursor.movePosition(QTextCursor.Start, QTextCursor.KeepAnchor)
-
-        # Build full text from buffer
-        block_fmt = QTextBlockFormat()
-        block_fmt.setLineHeight(120, 1)  # compact line height
-
-        lines = []
-        for row in self._term.buffer:
-            line_text = ""
-            for cell in row:
-                line_text += cell.char
-            # Strip trailing spaces
-            lines.append(line_text.rstrip())
-
-        # Determine what changed — simple approach: rebuild everything
-        # (QPlainTextEdit doesn't support incremental char-level updates well)
-        full_text = "\n".join(lines)
-        cursor.setBlockFormat(block_fmt)
-        cursor.insertText(full_text, QTextCharFormat())
-
-        # Now apply colors cell by cell
         cursor.movePosition(QTextCursor.Start)
-        for row_idx, row in enumerate(self._term.buffer):
-            for col_idx, cell in enumerate(row):
-                if cell.fg is not None or cell.bg is not None or cell.bold or cell.underline:
-                    fmt = QTextCharFormat()
-                    if cell.fg:
-                        fmt.setForeground(cell.fg)
-                    if cell.bg:
-                        fmt.setBackground(cell.bg)
-                    if cell.bold:
-                        fmt.setFontWeight(QFont.Bold)
-                    if cell.underline:
-                        fmt.setFontUnderline(True)
-                    # Position cursor at the right spot
-                    block = cursor.block()
-                    if block.isValid():
-                        cursor.setPosition(cursor.block().position() + col_idx)
-                        cursor.setPosition(cursor.block().position() + col_idx + 1, QTextCursor.KeepAnchor)
-                        cursor.setCharFormat(fmt)
-            if row_idx < len(self._term.buffer) - 1:
-                cursor.movePosition(QTextCursor.NextBlock)
+        cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
 
-        # Move cursor to end
-        cursor.movePosition(QTextCursor.End)
+        for row_idx, row in enumerate(self._term.buffer):
+            spans = []
+            curr_text = ""
+            curr_cell = None
+
+            for cell in row:
+                if curr_cell is None or (cell.fg == curr_cell.fg and cell.bg == curr_cell.bg and cell.bold == curr_cell.bold and cell.underline == curr_cell.underline):
+                    curr_text += cell.char
+                    curr_cell = cell
+                else:
+                    spans.append((curr_text, curr_cell))
+                    curr_text = cell.char
+                    curr_cell = cell
+            if curr_text:
+                spans.append((curr_text, curr_cell))
+
+            for span_text, cell in spans:
+                fmt = QTextCharFormat()
+                if cell and cell.fg:
+                    fmt.setForeground(cell.fg)
+                else:
+                    fmt.setForeground(QColor(PALETTE['fg']))
+                if cell and cell.bg:
+                    fmt.setBackground(cell.bg)
+                if cell and cell.bold:
+                    fmt.setFontWeight(QFont.Bold)
+                if cell and cell.underline:
+                    fmt.setFontUnderline(True)
+                cursor.insertText(span_text, fmt)
+
+            if row_idx < len(self._term.buffer) - 1:
+                cursor.insertText("\n", QTextCharFormat())
+
         self._view.setTextCursor(cursor)
-        self._view.ensureCursorVisible()
+        self._view.verticalScrollBar().setValue(self._view.verticalScrollBar().maximum())
 
     def _on_key(self, event: QKeyEvent) -> None:
         """Forward keyboard input to the shell."""
@@ -1262,6 +1254,7 @@ class TerminalWidget(QWidget):
         cmd = self._input.text()
         self._input.clear()
         if self._proc and cmd:
+            self._predictive_cd_update(cmd)
             self._proc.send(cmd + "\n")
             self._append_history(cmd)
 

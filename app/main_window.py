@@ -638,6 +638,11 @@ class TerminalPanel(QWidget):
         a_new = QAction(_icon(ico.icon_plus(14, "#858585")), "New Terminal", self)
         a_new.triggered.connect(self.new_tab)
         plus.addAction(a_new)
+
+        a_close = QAction(_icon(ico.icon_close(12, "#858585")), "Close Terminal Panel", self)
+        a_close.triggered.connect(lambda: self.setVisible(False))
+        plus.addAction(a_close)
+
         self._tabs.setCornerWidget(plus, Qt.TopRightCorner)
 
         v = QVBoxLayout(self)
@@ -676,7 +681,7 @@ class TerminalPanel(QWidget):
         idx = self._tabs.indexOf(widget)
 
         import re
-        cmd = request.command.strip()
+        cmd = (request.command if hasattr(request, "command") else str(request)).strip()
         matches = re.findall(r'["\']?([^"\'\s]+\.[a-zA-Z0-9]+)["\']?', cmd)
         file_name = Path(matches[-1]).name if matches else (cmd.split()[-1] if cmd.split() else "process")
 
