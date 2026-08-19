@@ -148,6 +148,51 @@ QToolBar QToolButton:pressed {{
 }}
 
 /* ================================================================
+   Activity Bar
+   ================================================================ */
+QToolBar#activityBar {{
+    background: {PALETTE['bg_sunken']};
+    border-right: 1px solid {PALETTE['border']};
+    border-bottom: none;
+    spacing: 6px;
+    padding: 6px 0px;
+}}
+QToolBar#activityBar QToolButton {{
+    background: transparent;
+    color: {PALETTE['fg_dim']};
+    padding: 10px 8px;
+    border-radius: 0px;
+    border-left: 2px solid transparent;
+    min-width: 38px;
+    min-height: 38px;
+}}
+QToolBar#activityBar QToolButton:hover {{
+    color: {PALETTE['fg_bright']};
+    background: rgba(255, 255, 255, 0.05);
+}}
+QToolBar#activityBar QToolButton:checked {{
+    color: {PALETTE['fg_bright']};
+    border-left: 2px solid {PALETTE['accent']};
+    background: rgba(255, 255, 255, 0.08);
+}}
+
+/* ================================================================
+   Breadcrumbs Bar
+   ================================================================ */
+QWidget#breadcrumbsBar {{
+    background: {PALETTE['bg']};
+    border-bottom: 1px solid {PALETTE['border']};
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0 12px;
+}}
+QLabel#breadcrumbLabel {{
+    color: {PALETTE['fg_dim']};
+    font-size: 11px;
+    font-family: "Segoe UI", sans-serif;
+}}
+
+/* ================================================================
    Status bar
    ================================================================ */
 QStatusBar {{
@@ -157,13 +202,19 @@ QStatusBar {{
     padding: 0;
     font-size: 12px;
     font-weight: 500;
+    min-height: 22px;
+    max-height: 22px;
 }}
 QStatusBar::item {{
     border: none;
 }}
 QStatusBar QLabel {{
     color: white;
-    padding: 2px 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+}}
+QStatusBar QLabel:hover {{
+    background: rgba(255, 255, 255, 0.15);
 }}
 
 /* ================================================================
@@ -192,26 +243,29 @@ QTabWidget::pane {{
     background: {PALETTE['bg']};
 }}
 QTabBar {{
-    background: {PALETTE['bg_alt']};
+    background: {PALETTE['bg_sunken']};
     border-bottom: 1px solid {PALETTE['border']};
 }}
 QTabBar::tab {{
-    background: transparent;
+    background: {PALETTE['bg_alt']};
     color: {PALETTE['fg_dim']};
     padding: 8px 16px;
     border: none;
-    border-bottom: 2px solid transparent;
+    border-right: 1px solid {PALETTE['bg']};
+    border-top: 2px solid transparent;
     margin: 0;
     min-width: 80px;
-    max-width: 200px;
+    max-width: 220px;
+    font-size: 12px;
 }}
 QTabBar::tab:selected {{
     background: {PALETTE['bg']};
-    color: {PALETTE['fg']};
-    border-bottom: 2px solid {PALETTE['accent']};
+    color: {PALETTE['fg_bright']};
+    border-top: 2px solid {PALETTE['accent']};
+    font-weight: 500;
 }}
 QTabBar::tab:!selected:hover {{
-    background: {PALETTE['panel']};
+    background: {PALETTE['bg_elevated']};
     color: {PALETTE['fg']};
 }}
 QTabBar::close-button {{
