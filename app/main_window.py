@@ -8,7 +8,7 @@ from PyQt5.QtGui import QIcon, QKeySequence
 from PyQt5.QtWidgets import (
     QAction, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QSplitter, QStatusBar, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget, QDialog, QTextEdit,
+    QVBoxLayout, QWidget, QDialog, QTextEdit, QFrame,
 )
 
 from app.editor.tabbed_editor import TabbedEditor
@@ -63,17 +63,27 @@ class MainWindow(QMainWindow):
         ec_layout.addWidget(activity_bar)
         ec_layout.addWidget(explorer_panel, 1)
 
-        # Breadcrumb navigation bar above editor
+        # Breadcrumbs navigation bar above editor (hidden when no file open)
         self.breadcrumbs_bar = QWidget()
         self.breadcrumbs_bar.setObjectName("breadcrumbsBar")
+        self.breadcrumbs_bar.setStyleSheet(f"""
+            QWidget#breadcrumbsBar {{
+                background: {PALETTE['bg']};
+                border-bottom: 1px solid {PALETTE['border']};
+                min-height: 25px;
+                max-height: 25px;
+            }}
+        """)
         bc_layout = QHBoxLayout(self.breadcrumbs_bar)
-        bc_layout.setContentsMargins(12, 0, 12, 0)
+        bc_layout.setContentsMargins(16, 0, 16, 0)
         bc_layout.setSpacing(6)
 
-        self.breadcrumb_label = QLabel("workspace › welcome")
+        self.breadcrumb_label = QLabel("")
         self.breadcrumb_label.setObjectName("breadcrumbLabel")
+        self.breadcrumb_label.setStyleSheet(f"color: {PALETTE['fg_dim']}; font-size: 11px;")
         bc_layout.addWidget(self.breadcrumb_label)
         bc_layout.addStretch()
+        self.breadcrumbs_bar.setVisible(False)
 
         # Center editor container (breadcrumbs + tabbed editor)
         editor_container = QWidget()
@@ -108,10 +118,9 @@ class MainWindow(QMainWindow):
         self._build_status_bar()
         self._status.showMessage("Ready")
 
-        # --- actions + menus + toolbar --------------------------------------
+        # --- actions + menus ------------------------------------------------
         self._build_actions()
         self._build_menu()
-        self._build_toolbar()
 
         # --- signals ---------------------------------------------------------
         self.explorer.file_activated.connect(self._open_path)
@@ -122,6 +131,11 @@ class MainWindow(QMainWindow):
         self.editor.dirty_state_changed.connect(self._on_dirty_changed)
         self.editor.cursor_moved.connect(self._on_cursor_moved)
         self.editor.content_loaded.connect(lambda _t: self._refresh_window_title())
+
+        # Connect welcome panel buttons
+        if hasattr(self.editor, '_welcome'):
+            self.editor._welcome._btn_open_file.clicked.connect(self._action_open_file)
+            self.editor._welcome._btn_open_folder.clicked.connect(self._action_open_folder)
 
         self._explorer_actions = ExplorerActions(self, on_after=self.explorer.refresh)
 
@@ -135,7 +149,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header = QLabel("EXPLORER")
+        header = QLabel("  EXPLORER")
         header.setStyleSheet(f"""
             QLabel {{
                 background: {PALETTE['bg_alt']};
@@ -153,63 +167,85 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_activity_bar(self) -> QWidget:
-        bar = QToolBar()
-        bar.setObjectName("activityBar")
-        bar.setOrientation(Qt.Vertical)
-        bar.setMovable(False)
-        bar.setFloatable(False)
+        bar = QWidget()
         bar.setFixedWidth(_ACTIVITY_SIZE)
-        bar.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+        bar.setStyleSheet(f"""
+            QWidget {{
+                background: {PALETTE['bg_sunken']};
+                border-right: 1px solid {PALETTE['border']};
+            }}
+        """)
+
+        layout = QVBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
 
         # Explorer
-        self._act_btn_explorer = QAction(QIcon(ico.icon_files(_ICON_SIZE, "#d4d4d4")), "Explorer", self)
-        self._act_btn_explorer.setCheckable(True)
-        self._act_btn_explorer.setChecked(True)
-        bar.addAction(self._act_btn_explorer)
-
-        # Flame AI Runtime
-        self._act_btn_flame = QAction(ico.icon_flame(_ICON_SIZE), "Flame AI Engine", self)
-        self._act_btn_flame.triggered.connect(self._action_run)
-        bar.addAction(self._act_btn_flame)
+        self._act_btn_explorer = _ActivityButton(
+            ico.icon_files(_ICON_SIZE, "#ffffff"),
+            ico.icon_files(_ICON_SIZE, "#858585"),
+            "Explorer", active=True,
+        )
+        layout.addWidget(self._act_btn_explorer)
 
         # Search
-        self._act_btn_search = QAction(QIcon(ico.icon_search(_ICON_SIZE, "#d4d4d4")), "Search (Ctrl+F)", self)
-        self._act_btn_search.triggered.connect(self._action_find)
-        bar.addAction(self._act_btn_search)
+        self._act_btn_search = _ActivityButton(
+            ico.icon_search(_ICON_SIZE, "#ffffff"),
+            ico.icon_search(_ICON_SIZE, "#858585"),
+            "Search (Ctrl+F)",
+        )
+        self._act_btn_search.clicked.connect(self._action_find)
+        layout.addWidget(self._act_btn_search)
 
-        # Terminal Toggle
-        self._act_btn_term = QAction(QIcon(ico.icon_plus(_ICON_SIZE, "#d4d4d4")), "Terminal (Ctrl+`)", self)
-        self._act_btn_term.triggered.connect(self._action_toggle_terminal)
-        bar.addAction(self._act_btn_term)
+        # Source Control
+        self._act_btn_git = _ActivityButton(
+            ico.icon_git(_ICON_SIZE, "#ffffff"),
+            ico.icon_git(_ICON_SIZE, "#858585"),
+            "Source Control",
+        )
+        layout.addWidget(self._act_btn_git)
 
-        # Settings
-        self._act_btn_settings = QAction(QIcon(ico.icon_gear(_ICON_SIZE, "#d4d4d4")), "Settings", self)
-        self._act_btn_settings.triggered.connect(self._action_about)
-        bar.addAction(self._act_btn_settings)
+        # Flame AI Runtime
+        self._act_btn_flame = _ActivityButton(
+            ico.icon_flame(_ICON_SIZE).pixmap(_ICON_SIZE, _ICON_SIZE),
+            ico.icon_flame(_ICON_SIZE).pixmap(_ICON_SIZE, _ICON_SIZE),
+            "Flame AI Engine (Ctrl+F5)",
+        )
+        self._act_btn_flame.clicked.connect(self._action_run)
+        layout.addWidget(self._act_btn_flame)
+
+        layout.addStretch(1)
+
+        # Settings (bottom)
+        self._act_btn_settings = _ActivityButton(
+            ico.icon_gear(_ICON_SIZE, "#ffffff"),
+            ico.icon_gear(_ICON_SIZE, "#858585"),
+            "Settings",
+        )
+        self._act_btn_settings.clicked.connect(self._action_about)
+        layout.addWidget(self._act_btn_settings)
 
         return bar
 
     # ---------------------------------------------------------------- status bar
 
     def _build_status_bar(self) -> None:
-        self._status_branch = QLabel("  main")
-        self._status_branch.setToolTip("Git Branch")
-        self._status.addWidget(self._status_branch)
+        self._status.setStyleSheet(f"background-color: {PALETTE['accent']}; color: #ffffff;")
 
-        self._status_flame = QLabel(" 🔥 Flame AI: Ready")
-        self._status_flame.setToolTip("Flame AI Conversion Engine Status")
-        self._status.addWidget(self._status_flame)
-
-        self._status_label = QLabel("Ln 1, Col 1")
-        self._status.addPermanentWidget(self._status_label)
+        self._status_label = QLabel("Col 1")
+        self._status_label.setStyleSheet("color: #ffffff; padding: 0 8px; font-size: 11px;")
+        self._status.addWidget(self._status_label)
 
         self._status_lang = QLabel("Plain Text")
+        self._status_lang.setStyleSheet("color: #ffffff; padding: 0 8px; font-size: 11px;")
         self._status.addPermanentWidget(self._status_lang)
 
         self._status_encoding = QLabel("UTF-8")
+        self._status_encoding.setStyleSheet("color: #ffffff; padding: 0 8px; font-size: 11px;")
         self._status.addPermanentWidget(self._status_encoding)
 
         self._status_eol = QLabel("LF")
+        self._status_eol.setStyleSheet("color: #ffffff; padding: 0 8px; font-size: 11px;")
         self._status.addPermanentWidget(self._status_eol)
 
     # ------------------------------------------------------------------ build
@@ -319,31 +355,12 @@ class MainWindow(QMainWindow):
         about.triggered.connect(self._action_about)
         m_help.addAction(about)
 
-    def _build_toolbar(self) -> None:
-        tb = QToolBar("Main")
-        tb.setMovable(False)
-        tb.setFloatable(False)
-        tb.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
-        self.addToolBar(tb)
-        tb.addAction(self.a_new)
-        tb.addAction(self.a_open)
-        tb.addAction(self.a_open_folder)
-        tb.addSeparator()
-        tb.addAction(self.a_save)
-        tb.addAction(self.a_save_all)
-        tb.addSeparator()
-        tb.addAction(self.a_run)
-        tb.addAction(self.a_toggle_terminal)
-        tb.addSeparator()
-        tb.addAction(self.a_find)
-        tb.addSeparator()
-        tb.addAction(self.a_close)
-
     # ------------------------------------------------------------- behaviour
 
     def _action_new(self) -> None:
         self.editor.new_file()
-        self.editor.current_editor().widget.setFocus()
+        if self.editor.current_editor():
+            self.editor.current_editor().widget.setFocus()
 
     def _action_open_file(self) -> None:
         start = str(self.explorer.root()) if self.explorer.root() else ""
@@ -476,8 +493,10 @@ class MainWindow(QMainWindow):
         if path:
             parts = [path.parent.name or "workspace", path.name]
             self.breadcrumb_label.setText(" › ".join(parts))
+            self.breadcrumbs_bar.setVisible(True)
         else:
-            self.breadcrumb_label.setText("workspace › welcome")
+            self.breadcrumb_label.setText("")
+            self.breadcrumbs_bar.setVisible(False)
 
     def _on_dirty_changed(self, dirty: bool) -> None:
         self._refresh_window_title()
@@ -485,7 +504,7 @@ class MainWindow(QMainWindow):
     def _on_cursor_moved(self, line: int, col: int) -> None:
         editor = self.editor.current_editor()
         lexer = editor.lexer_name() if editor else "—"
-        self._status_label.setText(f"Ln {line}, Col {col}")
+        self._status_label.setText(f"Col {col}")
         lang = lexer.replace("QsciLexer", "") if editor else "Plain Text"
         self._status_lang.setText(lang)
 
@@ -514,6 +533,61 @@ class MainWindow(QMainWindow):
             return
         self.terminal_panel.shutdown()
         event.accept()
+
+
+# ---------------------------------------------------------------------------
+# Activity bar button — painted icon, left-border active indicator
+# ---------------------------------------------------------------------------
+
+class _ActivityButton(QPushButton):
+    """A single activity-bar button with an icon and active/inactive state."""
+
+    def __init__(self, active_pixmap, inactive_pixmap,
+                 tooltip: str, active: bool = False) -> None:
+        super().__init__()
+        self.setFixedSize(_ACTIVITY_SIZE, _ACTIVITY_SIZE)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(tooltip)
+        self.setCheckable(True)
+        self.setChecked(active)
+        self._active_icon = QIcon(active_pixmap)
+        self._inactive_icon = QIcon(inactive_pixmap)
+        self._active = active
+        self._update_visual()
+        self.clicked.connect(self._on_clicked)
+
+    def _on_clicked(self) -> None:
+        self._active = self.isChecked()
+        self._update_visual()
+
+    def _update_visual(self) -> None:
+        if self._active:
+            self.setIcon(self._active_icon)
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    border-left: 2px solid {PALETTE['accent']};
+                    border-radius: 0;
+                    padding: 0;
+                    margin: 0;
+                }}
+            """)
+        else:
+            self.setIcon(self._inactive_icon)
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: transparent;
+                    border: none;
+                    border-left: 2px solid transparent;
+                    border-radius: 0;
+                    padding: 0;
+                    margin: 0;
+                }}
+                QPushButton:hover {{
+                    background: {PALETTE['panel']};
+                }}
+            """)
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +622,8 @@ class TerminalPanel(QWidget):
                 border: none;
                 border-bottom: 2px solid transparent;
                 min-width: 80px;
+                font-size: 11px;
+                font-weight: 600;
             }}
             QTabBar::tab:selected {{
                 background: {PALETTE['bg_sunken']};
