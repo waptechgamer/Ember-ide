@@ -127,6 +127,7 @@ class FileExplorer(QWidget):
         layout.addWidget(self._view)
         # Empty-state placeholder (created last so it sits on top)
         self._placeholder = self._build_placeholder()
+        layout.addWidget(self._placeholder)
         self._placeholder.hide()
 
         self._root: Optional[Path] = None

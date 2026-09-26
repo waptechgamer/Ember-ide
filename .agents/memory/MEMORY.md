@@ -1,0 +1,1 @@
+- [PyQt desktop runtime](qt-desktop-runtime.md) — VNC launches need the Qt xcb library set declared as Nix system dependencies.

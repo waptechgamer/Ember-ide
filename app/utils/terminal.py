@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import threading
+import signal
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -294,11 +295,12 @@ class _TermState:
         self.scroll_bottom = rows - 1
         self.cursor_row = min(self.cursor_row, rows - 1)
         self.cursor_col = min(self.cursor_col, cols - 1)
-        self._resize_buffer()
-        # Copy old content
-        for r in range(min(len(old), rows)):
-            for c in range(min(len(old[r]), cols)):
-                self.buffer[r][c] = old[r][c]
+        self.buffer = []
+        for r in range(rows):
+            previous = old[r] if r < len(old) else []
+            self.buffer.append(
+                previous[:cols] + [Cell() for _ in range(max(0, cols - len(previous)))]
+            )
         self.dirty = True
 
     def scroll_up(self, n: int = 1):
@@ -645,9 +647,11 @@ class _ShellProcess(QObject):
         self._proc = None
         self._stop = False
         self._stdin_lock = threading.Lock()
+        self._pending_input: List[bytes] = []
         self._using_pty = False
         self._fd = -1
         self._pid = -1
+        self._started = False
 
     def start(self) -> None:
         env = os.environ.copy()
@@ -665,6 +669,8 @@ class _ShellProcess(QObject):
                     cwd=self._cwd, env=env,
                 )
                 self._using_pty = True
+                self._started = True
+                self._flush_pending_input()
                 return
             except ImportError:
                 pass
@@ -677,6 +683,8 @@ class _ShellProcess(QObject):
                 creationflags=creationflags,
             )
             self._using_pty = False
+            self._started = True
+            self._flush_pending_input()
         else:
             # Unix: use pty.fork
             import pty
@@ -695,6 +703,8 @@ class _ShellProcess(QObject):
             self._fd = fd
             self._using_pty = True
             self._set_winsize(self._rows, self._cols)
+            self._started = True
+            self._flush_pending_input()
 
     def _set_winsize(self, rows: int, cols: int) -> None:
         if self._using_pty and not is_windows() and self._fd >= 0:
@@ -720,6 +730,13 @@ class _ShellProcess(QObject):
         self.send_bytes(data)
 
     def send_bytes(self, data: bytes) -> None:
+        with self._stdin_lock:
+            if not self._started:
+                self._pending_input.append(data)
+                return
+            self._send_bytes_now(data)
+
+    def _send_bytes_now(self, data: bytes) -> None:
         if self._using_pty and not is_windows() and self._fd >= 0:
             try:
                 os.write(self._fd, data)
@@ -731,18 +748,35 @@ class _ShellProcess(QObject):
             except Exception:
                 pass
         elif self._proc and self._proc.stdin:
-            with self._stdin_lock:
-                try:
-                    self._proc.stdin.write(data)
-                    self._proc.stdin.flush()
-                except (OSError, BrokenPipeError):
-                    pass
+            try:
+                self._proc.stdin.write(data)
+                self._proc.stdin.flush()
+            except (OSError, BrokenPipeError):
+                pass
+
+    def _flush_pending_input(self) -> None:
+        with self._stdin_lock:
+            pending = self._pending_input
+            self._pending_input = []
+            for data in pending:
+                self._send_bytes_now(data)
 
     def stop(self) -> None:
         self._stop = True
+        with self._stdin_lock:
+            self._pending_input.clear()
         try:
             if self._using_pty and not is_windows() and self._pid > 0:
-                os.kill(self._pid, 15)  # SIGTERM
+                try:
+                    os.killpg(os.getpgid(self._pid), signal.SIGTERM)
+                except (AttributeError, OSError):
+                    os.kill(self._pid, signal.SIGTERM)
+                if self._fd >= 0:
+                    try:
+                        os.close(self._fd)
+                    except OSError:
+                        pass
+                    self._fd = -1
             elif self._using_pty and is_windows() and self._proc:
                 self._proc.terminate(force=True)
             elif self._proc:
@@ -910,6 +944,8 @@ class TerminalWidget(QWidget):
 
         # --- View ---
         self._view = _TerminalView()
+        self._view.setObjectName("terminal_view")
+        self._view.setProperty("role", "terminal")
         self._view._term_state = self._term
         self._view.setReadOnly(True)
         self._view.setUndoRedoEnabled(False)
@@ -925,7 +961,8 @@ class TerminalWidget(QWidget):
                 selection-background-color: {PALETTE['selection']};
                 font-family: "{self._font.family()}";
                 font-size: {self._font.pointSize()}pt;
-                padding: 4px 6px;
+                padding: 8px 12px;
+                outline: none;
             }}
         """)
         self._view.key_pressed.connect(self._on_key)
@@ -965,11 +1002,20 @@ class TerminalWidget(QWidget):
         bottom.addWidget(self._input, 1)
         bottom.addWidget(self._stop_btn, 0)
 
+        # Keep the command field for backwards-compatible programmatic use,
+        # but keep it out of the visual terminal. VS Code sends input directly
+        # to the PTY from the terminal surface, which is handled by _on_key.
+        command_bar = QWidget()
+        command_bar.setObjectName("legacy_terminal_input")
+        command_bar.setLayout(bottom)
+        command_bar.hide()
+        self._command_bar = command_bar
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._view, 1)
-        layout.addLayout(bottom, 0)
+        layout.addWidget(command_bar, 0)
 
         # --- Worker thread ---
         self._thread = QThread(self)
@@ -990,6 +1036,10 @@ class TerminalWidget(QWidget):
 
     def focus_input(self) -> None:
         self._view.setFocus()
+
+    def interrupt(self) -> None:
+        """Send Ctrl+C to the active shell without terminating the PTY."""
+        self._stop_process()
 
     def run(self, request) -> None:
         if self._proc:
@@ -1078,6 +1128,11 @@ class TerminalWidget(QWidget):
     def _start_shell(self) -> None:
         if self._proc is not None:
             self._proc.stop()
+            for callback in (self._proc.start, self._proc.run):
+                try:
+                    self._thread.started.disconnect(callback)
+                except (TypeError, RuntimeError):
+                    pass
             try:
                 self._proc.output.disconnect(self._on_output)
                 self._proc.closed.disconnect(self._on_shell_closed)
@@ -1100,6 +1155,7 @@ class TerminalWidget(QWidget):
         self._proc = _ShellProcess(detect_shell(), str(self._cwd), cols=cols, rows=rows)
         self._proc.moveToThread(self._thread)
         self._thread.started.connect(self._proc.start)
+        self._thread.started.connect(self._proc.run)
         self._proc.output.connect(self._on_output)
         self._proc.closed.connect(self._on_shell_closed)
         self._thread.start()

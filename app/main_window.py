@@ -8,7 +8,7 @@ from PyQt5.QtGui import QIcon, QKeySequence
 from PyQt5.QtWidgets import (
     QAction, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QSplitter, QStatusBar, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget, QDialog, QTextEdit,
+    QToolButton, QVBoxLayout, QWidget, QDialog, QTextEdit,
 )
 
 from app.editor.tabbed_editor import TabbedEditor
@@ -17,7 +17,7 @@ from app.explorer.file_explorer import FileExplorer
 from app.theme.dark_theme import PALETTE
 from app.theme import icons as ico
 from app.utils.file_utils import normalize
-from app.utils.terminal import TerminalWidget
+from app.utils.terminal import TerminalWidget, detect_shell
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(bar)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addStretch(1)
 
         # --- Explorer (active) ---
         self._act_btn_explorer = _ActivityButton(
@@ -543,7 +542,7 @@ class _ActivityButton(QPushButton):
             self.setIcon(self._active_icon)
             self.setStyleSheet(f"""
                 QPushButton {{
-                    background: {PALETTE['accent']};
+                    background: {PALETTE['panel']};
                     border: none;
                     border-left: 2px solid {PALETTE['accent']};
                     border-radius: 0;
@@ -579,16 +578,94 @@ class TerminalPanel(QWidget):
                  parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._explorer = explorer
+        self.setObjectName("terminal_panel")
 
         self.setStyleSheet(f"""
-            QWidget {{ background: {PALETTE['bg_sunken']}; border: none; }}
-            QTabWidget::pane {{ border: none; background: {PALETTE['bg_sunken']}; }}
+            QWidget#terminal_panel {{
+                background: {PALETTE['bg_sunken']};
+                border: none;
+            }}
+            QTabWidget::pane {{
+                border: none;
+                background: {PALETTE['bg_sunken']};
+            }}
         """)
+
+        # VS Code's panel header: the panel type is separate from the
+        # individual terminal sessions shown in the tab row below it.
+        panel_header = QWidget()
+        panel_header.setObjectName("terminal_panel_header")
+        panel_header.setFixedHeight(35)
+        panel_header.setStyleSheet(f"""
+            QWidget#terminal_panel_header {{
+                background: {PALETTE['bg_alt']};
+                border-bottom: 1px solid {PALETTE['border']};
+            }}
+            QLabel#terminal_panel_title {{
+                color: {PALETTE['fg']};
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.7px;
+            }}
+            QLabel#terminal_panel_mode {{
+                color: {PALETTE['fg_dim']};
+                font-size: 11px;
+                padding: 9px 10px 8px;
+            }}
+            QToolButton#terminal_panel_control {{
+                background: transparent;
+                color: {PALETTE['fg_dim']};
+                border: none;
+                padding: 5px;
+                min-width: 26px;
+                min-height: 26px;
+            }}
+            QToolButton#terminal_panel_control:hover {{
+                color: {PALETTE['fg']};
+                background: {PALETTE['panel']};
+            }}
+        """)
+        header_layout = QHBoxLayout(panel_header)
+        header_layout.setContentsMargins(12, 0, 6, 0)
+        header_layout.setSpacing(0)
+
+        title = QLabel("TERMINAL")
+        title.setObjectName("terminal_panel_title")
+        header_layout.addWidget(title)
+        mode = QLabel("  ")
+        mode.setObjectName("terminal_panel_mode")
+        header_layout.addStretch(1)
+
+        self._stop_control = QToolButton()
+        self._stop_control.setObjectName("terminal_panel_control")
+        self._stop_control.setIcon(_icon(ico.icon_stop(14, PALETTE["fg_dim"])))
+        self._stop_control.setToolTip("Interrupt the active terminal process")
+        self._stop_control.clicked.connect(self._stop_active)
+        header_layout.addWidget(self._stop_control)
+
+        new_control = QToolButton()
+        new_control.setObjectName("terminal_panel_control")
+        new_control.setIcon(_icon(ico.icon_plus(14, PALETTE["fg_dim"])))
+        new_control.setToolTip("New terminal")
+        new_control.clicked.connect(self.new_tab)
+        header_layout.addWidget(new_control)
+
+        close_control = QToolButton()
+        close_control.setObjectName("terminal_panel_control")
+        close_control.setIcon(_icon(ico.icon_close(12, PALETTE["fg_dim"])))
+        close_control.setToolTip("Close panel")
+        close_control.clicked.connect(lambda: self.setVisible(False))
+        header_layout.addWidget(close_control)
 
         self._tabs = QTabWidget()
         self._tabs.setTabsClosable(True)
         self._tabs.setMovable(True)
+        self._tabs.setDocumentMode(True)
+        self._tabs.setUsesScrollButtons(False)
         self._tabs.setStyleSheet(f"""
+            QTabWidget {{
+                background: {PALETTE['bg_sunken']};
+            }}
             QTabBar {{
                 background: {PALETTE['bg_alt']};
                 border-bottom: 1px solid {PALETTE['border']};
@@ -596,10 +673,11 @@ class TerminalPanel(QWidget):
             QTabBar::tab {{
                 background: transparent;
                 color: {PALETTE['fg_dim']};
-                padding: 6px 12px;
+                padding: 7px 12px;
                 border: none;
                 border-bottom: 2px solid transparent;
-                min-width: 80px;
+                min-width: 76px;
+                max-width: 240px;
             }}
             QTabBar::tab:selected {{
                 background: {PALETTE['bg_sunken']};
@@ -610,43 +688,25 @@ class TerminalPanel(QWidget):
                 background: {PALETTE['panel']};
                 color: {PALETTE['fg']};
             }}
+            QTabBar::close-button {{
+                image: none;
+                subcontrol-position: right;
+                padding: 2px;
+                width: 14px;
+                height: 14px;
+            }}
+            QTabBar::close-button:hover {{
+                background: {PALETTE['panel']};
+                border-radius: 3px;
+            }}
         """)
         self._tabs.tabCloseRequested.connect(self._on_close)
         self._tabs.currentChanged.connect(lambda _i: self._focus_active())
 
-        plus = QToolBar()
-        plus.setMovable(False)
-        plus.setFloatable(False)
-        plus.setIconSize(QSize(14, 14))
-        plus.setStyleSheet(f"""
-            QToolBar {{
-                background: {PALETTE['bg_alt']};
-                border-bottom: 1px solid {PALETTE['border']};
-                spacing: 0; padding: 0;
-            }}
-            QToolButton {{
-                background: transparent;
-                color: {PALETTE['fg_dim']};
-                padding: 4px 8px;
-                border-radius: 3px;
-            }}
-            QToolButton:hover {{
-                background: {PALETTE['panel']};
-                color: {PALETTE['fg']};
-            }}
-        """)
-        a_new = QAction(_icon(ico.icon_plus(14, "#858585")), "New Terminal", self)
-        a_new.triggered.connect(self.new_tab)
-        plus.addAction(a_new)
-
-        a_close = QAction(_icon(ico.icon_close(12, "#858585")), "Close Terminal Panel", self)
-        a_close.triggered.connect(lambda: self.setVisible(False))
-        plus.addAction(a_close)
-
-        self._tabs.setCornerWidget(plus, Qt.TopRightCorner)
-
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
+        v.addWidget(panel_header)
         v.addWidget(self._tabs)
 
         self.new_tab()
@@ -661,7 +721,8 @@ class TerminalPanel(QWidget):
     def new_tab(self) -> TerminalWidget:
         cwd = self._default_cwd()
         widget = TerminalWidget(cwd=cwd)
-        idx = self._tabs.addTab(widget, f"Terminal {self._tabs.count() + 1}")
+        shell_name = Path(detect_shell()[0]).stem or "shell"
+        idx = self._tabs.addTab(widget, shell_name)
         self._tabs.setCurrentIndex(idx)
         widget.closed.connect(lambda w: self._close_widget(w))
         widget.focus_input()
@@ -671,6 +732,11 @@ class TerminalPanel(QWidget):
         w = self.current_widget()
         if w is not None:
             w.focus_input()
+
+    def _stop_active(self) -> None:
+        widget = self.current_widget()
+        if widget is not None:
+            widget.interrupt()
 
     def current_widget(self) -> TerminalWidget | None:
         w = self._tabs.currentWidget()
@@ -686,7 +752,8 @@ class TerminalPanel(QWidget):
         file_name = Path(matches[-1]).name if matches else (cmd.split()[-1] if cmd.split() else "process")
 
         if idx >= 0:
-            self._tabs.setTabText(idx, f"Terminal {idx + 1} — {file_name}")
+            shell_name = self._tabs.tabText(idx).split(" — ", 1)[0] or "shell"
+            self._tabs.setTabText(idx, f"{shell_name} — {file_name}")
             self._tabs.setTabToolTip(idx, f"Running: {request.command}\nCWD: {request.cwd}")
 
         widget.run(request)
