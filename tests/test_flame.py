@@ -3,7 +3,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from app.utils.flame_engine import convert_flame_file, validate_and_clean_code, generate_offline_fallback
+from app.utils.flame_engine import (
+    convert_flame_file,
+    generate_offline_fallback,
+    get_state_path,
+    prepare_flame_conversion,
+    validate_and_clean_code,
+)
 
 class TestFlameEngine(unittest.TestCase):
     def setUp(self):
@@ -107,6 +113,28 @@ class TestFlameEngine(unittest.TestCase):
                 mock_post.assert_called_once()
                 self.assertEqual(code, "print('from mock api')\n")
                 self.assertEqual(target_path.suffix, ".py")
+
+    def test_flame_source_and_incremental_state_are_saved(self):
+        flame_file = self.dir_path / "incremental.flame"
+        first = "@target python\nset greeting to hello\nkeep this function"
+        flame_file.write_text(first, encoding="utf-8")
+
+        code, target_path = convert_flame_file(flame_file)
+        state_path = get_state_path(flame_file, target_path)
+        self.assertTrue(flame_file.exists())
+        self.assertTrue(target_path.exists())
+        self.assertTrue(state_path.exists())
+        self.assertIn("hello", code)
+
+        updated = "@target python\nset greeting to goodbye\nkeep this function"
+        preview = prepare_flame_conversion(flame_file, updated)
+        self.assertEqual(preview.mode, "incremental")
+        self.assertIn("goodbye", preview.code)
+        self.assertIn("keep this function", preview.code)
+
+        convert_flame_file(flame_file, updated)
+        self.assertEqual(flame_file.read_text(encoding="utf-8"), updated)
+        self.assertIn("goodbye", target_path.read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main()

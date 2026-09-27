@@ -274,6 +274,13 @@ class MainWindow(QMainWindow):
         self.a_run.setShortcut(QKeySequence("Ctrl+F5"))
         self.a_run.triggered.connect(self._action_run)
 
+        self.a_flame_convert = QAction(ico.icon_flame(16), "AI Convert .flame", self)
+        self.a_flame_convert.setToolTip(
+            "Save the .flame source and update its generated language file"
+        )
+        self.a_flame_convert.setEnabled(False)
+        self.a_flame_convert.triggered.connect(self._action_run)
+
         self.a_toggle_terminal = QAction("Toggle Terminal", self)
         self.a_toggle_terminal.setShortcut(QKeySequence("Ctrl+`"))
         self.a_toggle_terminal.setCheckable(True)
@@ -377,6 +384,7 @@ class MainWindow(QMainWindow):
 
         m_run = mb.addMenu("&Run")
         m_run.addAction(self.a_run)
+        m_run.addAction(self.a_flame_convert)
         m_run.addAction(self.a_debug)
         m_run.addAction(self.a_test)
         m_run.addAction(self.a_task)
@@ -419,6 +427,7 @@ class MainWindow(QMainWindow):
         tb.addAction(self.a_save_all)
         tb.addSeparator()
         tb.addAction(self.a_run)
+        tb.addAction(self.a_flame_convert)
         tb.addAction(self.a_toggle_terminal)
         tb.addSeparator()
         tb.addAction(self.a_find)
@@ -464,25 +473,42 @@ class MainWindow(QMainWindow):
         if path and path.suffix.lower() == ".flame":
             self._status.showMessage("Running Flame AI Conversion Engine...", 5000)
             try:
-                content = path.read_text(encoding="utf-8")
-                from app.utils.flame_engine import detect_target_lang, get_target_path, call_ai_for_conversion, validate_and_clean_code
-                target_lang = detect_target_lang(content)
-                default_target_path = get_target_path(path, target_lang)
-
-                generated_raw = call_ai_for_conversion(content, target_lang)
-                code = validate_and_clean_code(generated_raw, target_lang)
+                # The open editor is the source of truth. Save it before the
+                # AI sees it so the .flame file is never lost.
+                if not self.editor.save_current():
+                    return
+                path = self.editor.current_path()
+                editor = self.editor.current_editor()
+                if path is None or editor is None:
+                    return
+                from app.utils.flame_engine import (
+                    commit_flame_conversion,
+                    prepare_flame_conversion,
+                )
+                preview = prepare_flame_conversion(path, editor.text)
 
                 dialog = FlamePreviewDialog(
                     parent=self,
                     filename=path.name,
-                    detected_lang=target_lang,
-                    initial_code=code,
-                    default_export_path=default_target_path
+                    detected_lang=preview.target_lang,
+                    initial_code=preview.code,
+                    default_export_path=preview.target_path,
+                    conversion_mode=preview.mode,
                 )
 
                 if dialog.exec() == QDialog.Accepted:
-                    final_path = dialog.exported_path or default_target_path
-                    self._status.showMessage(f"Flame saved/exported to {final_path.name}", 5000)
+                    final_path = dialog.exported_path or preview.target_path
+                    commit_flame_conversion(
+                        path,
+                        final_path,
+                        preview.source_content,
+                        dialog.editor.toPlainText(),
+                        preview.target_lang,
+                    )
+                    action = "updated" if preview.mode == "incremental" else "created"
+                    self._status.showMessage(
+                        f"Flame source saved; {final_path.name} {action}", 5000
+                    )
                     self.editor.open_file(final_path)
 
                     if dialog.run_after_export:
@@ -788,6 +814,10 @@ class MainWindow(QMainWindow):
 
     def _on_current_file_changed(self, path) -> None:
         self._refresh_window_title()
+        if hasattr(self, "a_flame_convert"):
+            self.a_flame_convert.setEnabled(
+                bool(path and path.suffix.lower() == ".flame")
+            )
         if path:
             editor = self.editor.current_editor()
             if editor:
@@ -1124,7 +1154,15 @@ class TerminalPanel(QWidget):
 class FlamePreviewDialog(QDialog):
     """Modern VS Code-inspired interactive dialog for reviewing, editing, and exporting AI generated code."""
 
-    def __init__(self, parent: QWidget | None, filename: str, detected_lang: str, initial_code: str, default_export_path: Path) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None,
+        filename: str,
+        detected_lang: str,
+        initial_code: str,
+        default_export_path: Path,
+        conversion_mode: str = "created",
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle(f"Flame AI Conversion Preview — {filename}")
         self.resize(750, 550)
@@ -1140,7 +1178,16 @@ class FlamePreviewDialog(QDialog):
 
         # Detected language line
         info_layout = QHBoxLayout()
-        info_label = QLabel(f"<b>Target Language:</b> <span style='color: {PALETTE['success']};'>{detected_lang.upper()}</span>")
+        mode_text = {
+            "created": "New conversion",
+            "incremental": "Only changed source parts will be updated",
+            "unchanged": "No source changes detected",
+        }.get(conversion_mode, "Conversion preview")
+        info_label = QLabel(
+            f"<b>Target Language:</b> "
+            f"<span style='color: {PALETTE['success']};'>{detected_lang.upper()}</span>"
+            f" &nbsp; <span style='color: {PALETTE['fg_dim']};'>{mode_text}</span>"
+        )
         info_label.setStyleSheet(f"font-size: 13px; color: {PALETTE['fg']};")
         info_layout.addWidget(info_label)
         info_layout.addStretch()
