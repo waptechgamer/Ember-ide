@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
+import sys
 
 from PyQt5.QtCore import QSize, Qt, QTimer
-from PyQt5.QtGui import QIcon, QKeySequence
+from PyQt5.QtGui import QIcon, QKeySequence, QFont
 from PyQt5.QtWidgets import (
     QAction, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
     QPushButton, QSizePolicy, QSplitter, QStatusBar, QTabWidget, QToolBar,
-    QToolButton, QVBoxLayout, QWidget, QDialog, QTextEdit,
+    QToolButton, QVBoxLayout, QWidget, QDialog, QTextEdit, QInputDialog,
 )
+from PyQt5.QtCore import QSettings
 
 from app.editor.tabbed_editor import TabbedEditor
 from app.explorer.explorer_actions import ExplorerActions
@@ -17,7 +20,16 @@ from app.explorer.file_explorer import FileExplorer
 from app.theme.dark_theme import PALETTE
 from app.theme import icons as ico
 from app.utils.file_utils import normalize
-from app.utils.terminal import TerminalWidget, detect_shell
+from app.utils.terminal import RunRequest, TerminalWidget, detect_shell
+from app.services import (
+    ExtensionManager, GitService, LanguageTools, PackageService, TaskService,
+    TestService, WorkspaceSearch, run_command,
+)
+from app.feature_dialogs import (
+    GitDialog, PackageDialog, ProblemsDialog, SettingsDialog,
+    WorkspaceSearchDialog, CommandListDialog, command_string,
+)
+from app.lsp.bridge import LspBridge, uri_path
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +56,10 @@ class MainWindow(QMainWindow):
         self.explorer = FileExplorer()
         self.editor = TabbedEditor()
         self.terminal_panel = TerminalPanel(explorer=self.explorer)
+        self.settings = QSettings()
+        self._extension_manager = ExtensionManager(None)
+        self.lsp_bridge = LspBridge(self)
+        self._lsp_diagnostics: dict[str, list] = {}
 
         # Build the explorer panel
         explorer_panel = self._build_explorer_panel(self.explorer)
@@ -102,8 +118,13 @@ class MainWindow(QMainWindow):
         self.editor.dirty_state_changed.connect(self._on_dirty_changed)
         self.editor.cursor_moved.connect(self._on_cursor_moved)
         self.editor.content_loaded.connect(lambda _t: self._refresh_window_title())
+        self.lsp_bridge.completion_ready.connect(self._on_lsp_completion)
+        self.lsp_bridge.diagnostics_ready.connect(self._on_lsp_diagnostics)
+        self.lsp_bridge.definition_ready.connect(self._on_lsp_definition)
+        self.lsp_bridge.status_changed.connect(lambda text: self._status.showMessage(text, 3000))
 
         self._explorer_actions = ExplorerActions(self, on_after=self.explorer.refresh)
+        self._apply_settings()
 
     # ------------------------------------------------------------------ panels
 
@@ -167,10 +188,10 @@ class MainWindow(QMainWindow):
         # --- Source Control ---
         self._act_btn_git = _ActivityButton(
             ico.icon_git(_ICON_SIZE, "#ffffff"),
-            ico.icon_git(_ICON_SIZE, "#5a5a5a"),
-            "Source Control (coming soon)",
+            ico.icon_git(_ICON_SIZE, "#858585"),
+            "Source Control",
         )
-        self._act_btn_git.setEnabled(False)
+        self._act_btn_git.clicked.connect(self._action_git)
         layout.addWidget(self._act_btn_git)
 
         layout.addStretch(1)
@@ -178,10 +199,10 @@ class MainWindow(QMainWindow):
         # --- Settings (bottom) ---
         self._act_btn_settings = _ActivityButton(
             ico.icon_gear(_ICON_SIZE, "#ffffff"),
-            ico.icon_gear(_ICON_SIZE, "#5a5a5a"),
-            "Settings (coming soon)",
+            ico.icon_gear(_ICON_SIZE, "#858585"),
+            "Settings",
         )
-        self._act_btn_settings.setEnabled(False)
+        self._act_btn_settings.clicked.connect(self._action_settings)
         layout.addWidget(self._act_btn_settings)
 
         return bar
@@ -271,6 +292,52 @@ class MainWindow(QMainWindow):
         self.a_find_replace.setShortcut(QKeySequence("Ctrl+H"))
         self.a_find_replace.triggered.connect(self._action_find_replace)
 
+        self.a_workspace_search = QAction("Search Workspace...", self)
+        self.a_workspace_search.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        self.a_workspace_search.triggered.connect(self._action_workspace_search)
+
+        self.a_go_definition = QAction("Go to Definition", self)
+        self.a_go_definition.setShortcut(QKeySequence("F12"))
+        self.a_go_definition.triggered.connect(self._action_go_definition)
+
+        self.a_rename_symbol = QAction("Rename Symbol...", self)
+        self.a_rename_symbol.setShortcut(QKeySequence("F2"))
+        self.a_rename_symbol.triggered.connect(self._action_rename_symbol)
+
+        self.a_complete = QAction("Trigger Suggestion", self)
+        self.a_complete.setShortcut(QKeySequence("Ctrl+Space"))
+        self.a_complete.triggered.connect(self._action_complete)
+
+        self.a_problems = QAction("Check File", self)
+        self.a_problems.setShortcut(QKeySequence("F8"))
+        self.a_problems.triggered.connect(self._action_problems)
+
+        self.a_toggle_breakpoint = QAction("Toggle Breakpoint", self)
+        self.a_toggle_breakpoint.setShortcut(QKeySequence("F9"))
+        self.a_toggle_breakpoint.triggered.connect(self._action_toggle_breakpoint)
+
+        self.a_debug = QAction("Debug Current File", self)
+        self.a_debug.setShortcut(QKeySequence("Ctrl+F9"))
+        self.a_debug.triggered.connect(self._action_debug)
+
+        self.a_task = QAction("Run Task...", self)
+        self.a_task.triggered.connect(self._action_task)
+
+        self.a_test = QAction("Run Tests", self)
+        self.a_test.triggered.connect(self._action_test)
+
+        self.a_package = QAction("Package Manager...", self)
+        self.a_package.triggered.connect(self._action_package)
+
+        self.a_git = QAction("Source Control...", self)
+        self.a_git.triggered.connect(self._action_git)
+
+        self.a_settings = QAction("Settings...", self)
+        self.a_settings.triggered.connect(self._action_settings)
+
+        self.a_extensions = QAction("Extensions...", self)
+        self.a_extensions.triggered.connect(self._action_extensions)
+
     def _build_menu(self) -> None:
         mb = self.menuBar()
 
@@ -302,9 +369,17 @@ class MainWindow(QMainWindow):
         m_edit.addSeparator()
         m_edit.addAction(self.a_find)
         m_edit.addAction(self.a_find_replace)
+        m_edit.addAction(self.a_workspace_search)
+        m_edit.addSeparator()
+        m_edit.addAction(self.a_complete)
+        m_edit.addAction(self.a_go_definition)
+        m_edit.addAction(self.a_rename_symbol)
 
         m_run = mb.addMenu("&Run")
         m_run.addAction(self.a_run)
+        m_run.addAction(self.a_debug)
+        m_run.addAction(self.a_test)
+        m_run.addAction(self.a_task)
         m_run.addSeparator()
         m_run.addAction(self.a_new_terminal)
 
@@ -314,6 +389,16 @@ class MainWindow(QMainWindow):
         m_view.addSeparator()
         m_view.addAction(self.a_find)
         m_view.addAction(self.a_find_replace)
+
+        m_tools = mb.addMenu("&Tools")
+        m_tools.addAction(self.a_problems)
+        m_tools.addAction(self.a_toggle_breakpoint)
+        m_tools.addSeparator()
+        m_tools.addAction(self.a_package)
+        m_tools.addAction(self.a_extensions)
+        m_tools.addSeparator()
+        m_tools.addAction(self.a_git)
+        m_tools.addAction(self.a_settings)
 
         m_help = mb.addMenu("&Help")
         about = QAction("About Ember IDE", self)
@@ -337,6 +422,8 @@ class MainWindow(QMainWindow):
         tb.addAction(self.a_toggle_terminal)
         tb.addSeparator()
         tb.addAction(self.a_find)
+        tb.addAction(self.a_workspace_search)
+        tb.addAction(self.a_problems)
         tb.addSeparator()
         tb.addAction(self.a_close)
 
@@ -429,6 +516,231 @@ class MainWindow(QMainWindow):
             self.terminal_panel.setVisible(True)
             self.a_toggle_terminal.setChecked(True)
 
+    def _project_root(self) -> Path | None:
+        return self.explorer.root() or (
+            self.editor.current_path().parent if self.editor.current_path() else None
+        )
+
+    def _run_in_terminal(self, argv: list[str], cwd: Path | None = None) -> None:
+        root = cwd or self._project_root() or Path.home()
+        if not self.terminal_panel.isVisible():
+            self.terminal_panel.setVisible(True)
+            self.a_toggle_terminal.setChecked(True)
+        self.terminal_panel.run_on_active(
+            RunRequest(command=command_string(argv), cwd=root)
+        )
+
+    def _action_git(self) -> None:
+        service = GitService(self._project_root())
+        if not service.available:
+            QMessageBox.information(
+                self, "Source Control",
+                "Open a folder inside a Git repository to use Source Control.",
+            )
+            return
+        GitDialog(service, self, on_changed=self.explorer.refresh).exec()
+
+    def _action_settings(self) -> None:
+        SettingsDialog(self.settings, self, on_apply=self._apply_settings).exec()
+
+    def _apply_settings(self) -> None:
+        try:
+            size = int(self.settings.value("editor/font_size", 10))
+            tab_width = int(self.settings.value("editor/tab_width", 4))
+            autocomplete = self.settings.value("editor/autocomplete", True, type=bool)
+        except (TypeError, ValueError):
+            size, tab_width, autocomplete = 10, 4, True
+        for item in getattr(self.editor, "_items", []):
+            widget = item.editor.widget
+            widget.setTabWidth(tab_width)
+            font = QFont(widget.font())
+            font.setPointSize(size)
+            widget.setFont(font)
+            widget.setAutoCompletionSource(
+                widget.AcsAll if autocomplete else widget.AcsNone
+            )
+
+    def _action_workspace_search(self) -> None:
+        WorkspaceSearchDialog(
+            self._project_root(), self, on_open=self._open_search_match
+        ).exec()
+
+    def _open_search_match(self, match) -> None:
+        if self.editor.open_file(match.path):
+            self.editor.goto_line(match.line, max(0, match.column - 1))
+
+    def _action_problems(self) -> None:
+        path = self.editor.current_path()
+        editor = self.editor.current_editor()
+        if path is None or editor is None:
+            QMessageBox.information(self, "Problems", "Open a saved source file first.")
+            return
+        problems = LanguageTools.python_diagnostics(path, editor.text)
+        for diagnostic in self._lsp_diagnostics.get(path.resolve().as_uri(), []):
+            problems.append((diagnostic.range.start.line + 1, diagnostic.message))
+        ProblemsDialog(problems, self).exec()
+
+    def _current_word(self) -> str:
+        editor = self.editor.current_editor()
+        if editor is None:
+            return ""
+        line, col = editor.widget.getCursorPosition()
+        try:
+            return editor.widget.wordAtLineIndex(line, col)
+        except AttributeError:
+            text = editor.widget.text(line)
+            match = re.search(r"[A-Za-z_][A-Za-z0-9_]*", text[:col] + " ")
+            return match.group(0) if match else ""
+
+    def _action_go_definition(self) -> None:
+        word = self._current_word()
+        editor = self.editor.current_editor()
+        if not word or editor is None:
+            return
+        path = self.editor.current_path()
+        if path is not None:
+            line0, column0 = editor.widget.getCursorPosition()
+            self.lsp_bridge.definition(path, line0, column0)
+        line = LanguageTools.definition(editor.text, word)
+        if line:
+            self.editor.goto_line(line)
+            return
+        root = self._project_root()
+        if root:
+            pattern = rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(word)}\b"
+            matches = WorkspaceSearch(root).search(pattern, regex=True)
+            if matches:
+                self._open_search_match(matches[0])
+                return
+        QMessageBox.information(self, "Go to Definition", f"No definition found for '{word}'.")
+
+    def _action_rename_symbol(self) -> None:
+        editor = self.editor.current_editor()
+        old = self._current_word()
+        if editor is None or not old:
+            return
+        new, accepted = QInputDialog.getText(self, "Rename Symbol", f"Rename '{old}' to:")
+        new = new.strip()
+        if not accepted or not new or new == old or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", new):
+            return
+        root = self._project_root()
+        scope = QMessageBox.question(
+            self, "Rename Symbol",
+            f"Replace '{old}' throughout the workspace?\nChoose No to change only the current file.",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            QMessageBox.Yes,
+        )
+        if scope == QMessageBox.Cancel:
+            return
+        from app.utils.file_utils import safe_write
+        pattern = re.compile(rf"\b{re.escape(old)}\b")
+        if scope == QMessageBox.Yes and root:
+            for path in WorkspaceSearch(root).iter_files() or ():
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                    replaced = pattern.sub(new, text)
+                    if replaced != text:
+                        safe_write(path, replaced)
+                        if path == self.editor.current_path():
+                            editor.text = replaced
+                except OSError:
+                    continue
+        else:
+            editor.text = pattern.sub(new, editor.text)
+        self._status.showMessage(f"Renamed {old} to {new}", 3000)
+
+    def _action_complete(self) -> None:
+        editor = self.editor.current_editor()
+        if editor is not None:
+            editor.show_local_completion()
+            path = self.editor.current_path()
+            if path is not None:
+                line, column = editor.widget.getCursorPosition()
+                self.lsp_bridge.complete(path, line, column)
+
+    def _on_lsp_completion(self, items) -> None:
+        editor = self.editor.current_editor()
+        if editor is None or not items:
+            return
+        labels = [item.insert_text or item.label for item in items if item.label]
+        if labels:
+            editor.widget.showUserList(2, labels[:200])
+
+    def _on_lsp_diagnostics(self, uri: str, diagnostics) -> None:
+        self._lsp_diagnostics[uri] = diagnostics
+        if diagnostics:
+            self._status.showMessage(f"{len(diagnostics)} language-server problem(s)", 4000)
+
+    def _on_lsp_definition(self, locations) -> None:
+        if not locations:
+            return
+        location = locations[0]
+        path = uri_path(location.uri)
+        if path and self.editor.open_file(path):
+            self.editor.goto_line(location.range.start.line + 1, location.range.start.character)
+
+    def _action_toggle_breakpoint(self) -> None:
+        editor = self.editor.current_editor()
+        if editor is not None:
+            editor.toggle_breakpoint_current()
+
+    def _action_debug(self) -> None:
+        path = self.editor.current_path()
+        if path is None:
+            QMessageBox.information(self, "Debugger", "Save the current file before debugging.")
+            return
+        if path.suffix.lower() == ".py":
+            self._run_in_terminal([sys.executable, "-m", "pdb", str(path)], path.parent)
+        else:
+            QMessageBox.information(
+                self, "Debugger",
+                "The interactive debugger currently supports Python files. "
+                "Use Toggle Breakpoint and Debug Current File to start pdb.",
+            )
+
+    def _action_task(self) -> None:
+        tasks = TaskService(self._project_root()).discover()
+        if not tasks:
+            QMessageBox.information(
+                self, "Tasks",
+                "No tasks found. Add commands to .ember/tasks.json, package.json scripts, or a Makefile.",
+            )
+            return
+        dialog = CommandListDialog("Run Task", tasks, self)
+        if dialog.exec() == QDialog.Accepted and dialog.selected():
+            _name, command = dialog.selected()
+            self._run_in_terminal(["sh", "-c", command] if sys.platform != "win32" else ["cmd", "/c", command])
+
+    def _action_test(self) -> None:
+        command = TestService.command(self._project_root(), self.editor.current_path())
+        if not command:
+            QMessageBox.information(self, "Tests", "No Python or npm test setup was detected.")
+            return
+        self._run_in_terminal(command)
+
+    def _action_package(self) -> None:
+        root = self._project_root()
+        ecosystem = PackageService.ecosystem(root)
+        dialog = PackageDialog(ecosystem, self)
+        if dialog.exec() == QDialog.Accepted:
+            action, package = dialog.request()
+            if action != "list" and not package:
+                QMessageBox.information(self, "Package Manager", "Enter a package name.")
+                return
+            self._run_in_terminal(PackageService.command(ecosystem, action, package), root)
+
+    def _action_extensions(self) -> None:
+        root = self._project_root()
+        self._extension_manager = ExtensionManager(root)
+        extensions = self._extension_manager.load()
+        if not extensions:
+            QMessageBox.information(
+                self, "Extensions",
+                "No extensions found. Put Python extensions in .ember/extensions/.",
+            )
+            return
+        CommandListDialog("Installed Extensions", extensions, self).exec()
+
     def _action_find(self) -> None:
         self.editor.toggle_search()
         if self.editor._search_bar.isVisible():
@@ -454,6 +766,8 @@ class MainWindow(QMainWindow):
     def _open_folder_silently(self, path: str) -> None:
         p = normalize(path)
         self.explorer.set_root(p)
+        self._extension_manager = ExtensionManager(p)
+        self._extension_manager.load()
         self._status.showMessage(f"Folder: {p}", 2000)
 
     def _on_explorer_action(self, action: str, path: Path) -> None:
@@ -474,9 +788,17 @@ class MainWindow(QMainWindow):
 
     def _on_current_file_changed(self, path) -> None:
         self._refresh_window_title()
+        if path:
+            editor = self.editor.current_editor()
+            if editor:
+                self.lsp_bridge.open_document(path, editor.text)
 
     def _on_dirty_changed(self, dirty: bool) -> None:
         self._refresh_window_title()
+        path = self.editor.current_path()
+        editor = self.editor.current_editor()
+        if path and editor:
+            self.lsp_bridge.open_document(path, editor.text)
 
     def _on_cursor_moved(self, line: int, col: int) -> None:
         editor = self.editor.current_editor()
@@ -509,6 +831,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             return
         self.terminal_panel.shutdown()
+        self.lsp_bridge.shutdown()
         event.accept()
 
 

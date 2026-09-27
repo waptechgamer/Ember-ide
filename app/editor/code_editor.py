@@ -12,9 +12,10 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtGui import QColor, QFont
 
 from app.theme.dark_theme import QSCI_DARK, PALETTE, pick_lexer_class
+from app.editor.language_tools import EnhancedEditorMixin
 
 
-class CodeEditor(QObject):
+class CodeEditor(EnhancedEditorMixin, QObject):
     """Thin facade over QsciScintilla.
 
     The underlying widget is accessible via ``.widget`` for parenting
@@ -31,6 +32,7 @@ class CodeEditor(QObject):
 
         self._scintilla = QsciScintilla()
         self._configure()
+        self.configure_language_tools()
         self._scintilla.SCN_SAVEPOINTLEFT.connect(self._on_modified)
         self._scintilla.SCN_SAVEPOINTREACHED.connect(lambda: self._emit_modified(False))
         self._scintilla.cursorPositionChanged.connect(self._on_cursor)

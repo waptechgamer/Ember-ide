@@ -623,6 +623,16 @@ class TabbedEditor(QWidget):
             return False
         return path.suffix.lower() in _RUNNERS
 
+    def goto_line(self, line: int, column: int = 0) -> None:
+        """Move the current editor to a one-based line and zero-based column."""
+        editor = self.current_editor()
+        if editor is None:
+            return
+        line = max(1, int(line))
+        editor.widget.setCursorPosition(line - 1, max(0, int(column)))
+        editor.widget.ensureCursorVisible()
+        editor.widget.setFocus()
+
     def close_current(self) -> bool:
         idx = self._tabs.currentIndex()
         if idx < 0:
