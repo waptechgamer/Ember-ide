@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ember IDE — Next-Gen AI-Powered Polyglot Development Environment</title>
+    <meta name="description" content="Ember IDE is a lightweight, high-performance desktop IDE featuring the Flame AI Conversion Engine, LSP support, integrated multi-tab terminal, and anti-gravity UI interactive physics.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+    <!-- Background Particle Canvas -->
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- Header / Navigation -->
+    <header class="navbar">
+        <div class="nav-container">
+            <a href="#" class="brand">
+                <div class="brand-icon">
+                    <i class="fa-solid fa-fire-flame-curved"></i>
+                </div>
+                <span class="brand-name">Ember<span class="highlight">IDE</span></span>
+            </a>
+
+            <nav class="nav-menu" id="nav-menu">
+                <a href="#features" class="nav-link"><i class="fa-solid fa-cubes"></i> Features</a>
+                <a href="#flame-ai" class="nav-link"><i class="fa-solid fa-wand-magic-sparkles"></i> Flame AI Engine</a>
+                <a href="#screenshots" class="nav-link"><i class="fa-solid fa-images"></i> Screenshots</a>
+                <a href="#antigravity" class="nav-link"><i class="fa-solid fa-atom"></i> Anti-Gravity Sandbox</a>
+                <a href="#getting-started" class="nav-link"><i class="fa-solid fa-rocket"></i> Quick Start</a>
+            </nav>
+
+            <div class="nav-actions">
+                <button class="antigravity-toggle-btn" id="antigravity-toggle" title="Toggle Zero-G Mode">
+                    <i class="fa-solid fa-magnet"></i>
+                    <span id="zero-g-status">Zero-G: OFF</span>
+                </button>
+                <a href="#getting-started" class="btn btn-primary btn-sm">
+                    <i class="fa-solid fa-download"></i> Get Started
+                </a>
+                <button class="mobile-toggle" id="mobile-toggle">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Wrapper -->
+    <main>
+        <!-- Hero Section -->
+        <section class="hero" id="hero">
+            <div class="hero-bg-glow"></div>
+            <div class="container hero-container">
+                <div class="hero-badge">
+                    <span class="pulse-dot"></span>
+                    <span>Flame AI Dynamic Polyglot Engine Inside</span>
+                </div>
+
+                <h1 class="hero-title">
+                    Coding without Boundaries.<br>
+                    Powered by <span class="gradient-text">Flame AI Engine</span>.
+                </h1>
+
+                <p class="hero-subtitle">
+                    Ember IDE is a high-performance Python & PyQt5 editor featuring the revolutionary
+                    <strong>Flame AI Conversion Engine</strong>, language-agnostic LSP client integration,
+                    QScintilla multi-tab editing, and interactive zero-gravity floating UI physics.
+                </p>
+
+                <div class="hero-buttons">
+                    <a href="#getting-started" class="btn btn-primary btn-lg">
+                        <i class="fa-solid fa-rocket"></i> Launch Ember IDE
+                    </a>
+                    <a href="#flame-ai" class="btn btn-secondary btn-lg">
+                        <i class="fa-solid fa-play"></i> Try Flame AI Simulator
+                    </a>
+                    <button class="btn btn-outline btn-lg" id="hero-antigravity-btn">
+                        <i class="fa-solid fa-atom"></i> Float Hero Elements
+                    </button>
+                </div>
+
+                <!-- Floating Tech Badges (Physics Targets) -->
+                <div class="floating-tech-container" id="floating-tech">
+                    <div class="tech-tag float-item" data-speed="1.2"><i class="fa-brands fa-rust"></i> @target rust</div>
+                    <div class="tech-tag float-item" data-speed="0.8"><i class="fa-solid fa-bolt"></i> @target zig</div>
+                    <div class="tech-tag float-item" data-speed="1.5"><i class="fa-brands fa-python"></i> @target python</div>
+                    <div class="tech-tag float-item" data-speed="1.1"><i class="fa-solid fa-code"></i> @target cpp</div>
+                    <div class="tech-tag float-item" data-speed="0.9"><i class="fa-brands fa-js"></i> @target typescript</div>
+                    <div class="tech-tag float-item" data-speed="1.3"><i class="fa-brands fa-golang"></i> @target go</div>
+                </div>
+
+                <!-- Main IDE Showcase Frame -->
+                <div class="hero-showcase glass-card" id="showcase-card">
+                    <div class="showcase-header">
+                        <div class="window-dots">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                        </div>
+                        <div class="window-title">
+                            <i class="fa-solid fa-fire-flame-curved icon-orange"></i> Ember IDE — main.flame
+                        </div>
+                        <div class="window-actions">
+                            <span class="badge-status">LSP Connected</span>
+                        </div>
+                    </div>
+                    <div class="showcase-body image-container">
+                        <img src="assets/images/ember_ide_main.png" alt="Ember IDE Main Interface" id="hero-main-img" class="lightbox-trigger">
+                        <div class="showcase-overlay">
+                            <button class="btn btn-icon lightbox-trigger-btn" data-target="assets/images/ember_ide_main.png">
+                                <i class="fa-solid fa-expand"></i> Enlarge Screenshot
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Flame AI Conversion Engine Interactive Simulator -->
+        <section class="section flame-section" id="flame-ai">
+            <div class="container">
+                <div class="section-header text-center">
+                    <div class="section-tag"><i class="fa-solid fa-wand-magic-sparkles"></i> Flame AI Engine</div>
+                    <h2 class="section-title">Polyglot Code Conversion at the Speed of Flame</h2>
+                    <p class="section-description">
+                        Write standard `.flame` specifications or code blocks and use the `@target <language>` directive.
+                        Ember IDE's Flame Engine converts your intent into clean, target-native code instantly!
+                    </p>
+                </div>
+
+                <div class="flame-simulator glass-card">
+                    <div class="simulator-toolbar">
+                        <div class="target-selector-group">
+                            <label for="target-select"><i class="fa-solid fa-bullseye"></i> Dynamic Target Language:</label>
+                            <select id="target-select" class="custom-select">
+                                <option value="zig" selected>Zig (.zig)</option>
+                                <option value="rust">Rust (.rs)</option>
+                                <option value="python">Python (.py)</option>
+                                <option value="cpp">C++ (.cpp)</option>
+                                <option value="typescript">TypeScript (.ts)</option>
+                                <option value="go">Go (.go)</option>
+                            </select>
+                        </div>
+
+                        <div class="simulator-actions">
+                            <button class="btn btn-accent btn-sm" id="convert-btn">
+                                <i class="fa-solid fa-fire"></i> Run Flame Conversion
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="reset-flame-btn">
+                                <i class="fa-solid fa-rotate-left"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="simulator-grid">
+                        <!-- Input Spec Pane -->
+                        <div class="pane pane-input">
+                            <div class="pane-header">
+                                <span class="file-name"><i class="fa-solid fa-file-code icon-orange"></i> input_spec.flame</span>
+                                <span class="pane-badge">Flame Specification</span>
+                            </div>
+                            <textarea id="flame-input" class="code-editor-area" spellcheck="false" rows="12">// Flame AI Multi-Target Code Specification
+// Target directive maps dynamically to output language
+
+@target zig
+pub fn calculate_fibonacci(n: u32) u32 {
+    if (n <= 1) return n;
+    return calculate_fibonacci(n - 1) + calculate_fibonacci(n - 2);
+}
+
+// Flame Engine dynamically formats memory and syntax</textarea>
+                        </div>
+
+                        <!-- Output Conversion Pane -->
+                        <div class="pane pane-output">
+                            <div class="pane-header">
+                                <span class="file-name" id="output-filename"><i class="fa-solid fa-file-export icon-green"></i> output.zig</span>
+                                <span class="pane-badge badge-success" id="conversion-status">Ready</span>
+                            </div>
+                            <pre class="code-output-area"><code id="flame-output">// Generated native code will appear here...</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Core Features Section -->
+        <section class="section features-section" id="features">
+            <div class="container">
+                <div class="section-header text-center">
+                    <div class="section-tag"><i class="fa-solid fa-cubes"></i> Core Features</div>
+                    <h2 class="section-title">Engineered for Developer Productivity</h2>
+                    <p class="section-description">
+                        Everything you need in a modern IDE, built with lightweight Python efficiency and Qt desktop power.
+                    </p>
+                </div>
+
+                <div class="features-grid">
+                    <!-- Feature 1 -->
+                    <div class="feature-card glass-card float-item" data-speed="1.0">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                        </div>
+                        <h3>Flame AI Conversion</h3>
+                        <p>
+                            Convert `.flame` specifications seamlessly with `@target` declarations using OpenAI GPT models or built-in dynamic fallback offline engine.
+                        </p>
+                    </div>
+
+                    <!-- Feature 2 -->
+                    <div class="feature-card glass-card float-item" data-speed="1.1">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-network-wired"></i>
+                        </div>
+                        <h3>Language Server Protocol</h3>
+                        <p>
+                            Language-agnostic LSP client supporting Pyright, Rust-Analyzer, ZLS, Gopls, and TSServer with JSON-RPC over stdio.
+                        </p>
+                    </div>
+
+                    <!-- Feature 3 -->
+                    <div class="feature-card glass-card float-item" data-speed="0.9">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-terminal"></i>
+                        </div>
+                        <h3>Multi-Tab Terminal</h3>
+                        <p>
+                            Integrated terminal with full ANSI 256-color parsing, predictive `cd` tracking, auto-detected system shell, and monospace font styling.
+                        </p>
+                    </div>
+
+                    <!-- Feature 4 -->
+                    <div class="feature-card glass-card float-item" data-speed="1.2">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-layer-group"></i>
+                        </div>
+                        <h3>QScintilla Tabbed Editor</h3>
+                        <p>
+                            Multi-tab editor powered by QScintilla for lightning-fast syntax highlighting, code folding, margin indicators, and smooth scrolling.
+                        </p>
+                    </div>
+
+                    <!-- Feature 5 -->
+                    <div class="feature-card glass-card float-item" data-speed="0.85">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-folder-tree"></i>
+                        </div>
+                        <h3>Explorer & Codicons</h3>
+                        <p>
+                            Workspace explorer featuring custom `FlameFileIconProvider`, VS Code-style activity bar, breadcrumbs, and file actions.
+                        </p>
+                    </div>
+
+                    <!-- Feature 6 -->
+                    <div class="feature-card glass-card float-item" data-speed="1.05">
+                        <div class="feature-icon">
+                            <i class="fa-solid fa-atom"></i>
+                        </div>
+                        <h3>Anti-Gravity Physics UI</h3>
+                        <p>
+                            Interactive zero-G UI physics mode allowing desktop components, tags, and cards to float, drift, and collide in space.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Screenshots Gallery Section -->
+        <section class="section screenshots-section" id="screenshots">
+            <div class="container">
+                <div class="section-header text-center">
+                    <div class="section-tag"><i class="fa-solid fa-images"></i> Interface Gallery</div>
+                    <h2 class="section-title">Ember IDE in Action</h2>
+                    <p class="section-description">
+                        Explore actual captured interface screenshots of Ember IDE running on desktop.
+                    </p>
+                </div>
+
+                <div class="gallery-grid">
+                    <!-- Screenshot 1 -->
+                    <div class="gallery-card glass-card">
+                        <div class="gallery-image">
+                            <img src="assets/images/ember_ide_main.png" alt="Main IDE Workspace" class="lightbox-trigger">
+                            <div class="gallery-overlay">
+                                <i class="fa-solid fa-magnifying-glass-plus"></i>
+                            </div>
+                        </div>
+                        <div class="gallery-info">
+                            <h4>Main Workspace & Multi-Tab Editor</h4>
+                            <p>Dark theme palette, breadcrumbs, active file tabs, and Activity Bar.</p>
+                        </div>
+                    </div>
+
+                    <!-- Screenshot 2 -->
+                    <div class="gallery-card glass-card">
+                        <div class="gallery-image">
+                            <img src="assets/images/ember_ide_flame.png" alt="Flame AI Preview Dialog" class="lightbox-trigger">
+                            <div class="gallery-overlay">
+                                <i class="fa-solid fa-magnifying-glass-plus"></i>
+                            </div>
+                        </div>
+                        <div class="gallery-info">
+                            <h4>Flame AI Review & Export Dialog</h4>
+                            <p>Interactive side-by-side review, target language selection, and code export.</p>
+                        </div>
+                    </div>
+
+                    <!-- Screenshot 3 -->
+                    <div class="gallery-card glass-card">
+                        <div class="gallery-image">
+                            <img src="assets/images/ember_ide_terminal.png" alt="Multi-Tab Integrated Terminal" class="lightbox-trigger">
+                            <div class="gallery-overlay">
+                                <i class="fa-solid fa-magnifying-glass-plus"></i>
+                            </div>
+                        </div>
+                        <div class="gallery-info">
+                            <h4>Integrated ANSI Terminal</h4>
+                            <p>Multi-tab execution terminal with ANSI rendering and dynamic path detection.</p>
+                        </div>
+                    </div>
+
+                    <!-- Screenshot 4 -->
+                    <div class="gallery-card glass-card">
+                        <div class="gallery-image">
+                            <img src="assets/images/ember_ide_explorer.png" alt="Workspace File Explorer" class="lightbox-trigger">
+                            <div class="gallery-overlay">
+                                <i class="fa-solid fa-magnifying-glass-plus"></i>
+                            </div>
+                        </div>
+                        <div class="gallery-info">
+                            <h4>Workspace Explorer & File Icons</h4>
+                            <p>Custom Codicon flame icon provider and tree view directory navigation.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Interactive Anti-Gravity Physics Playground -->
+        <section class="section antigravity-section" id="antigravity">
+            <div class="container">
+                <div class="section-header text-center">
+                    <div class="section-tag"><i class="fa-solid fa-atom"></i> Interactive Physics</div>
+                    <h2 class="section-title">Anti-Gravity Physics Sandbox</h2>
+                    <p class="section-description">
+                        Drag, toss, and float language tags, flame embers, and UI cards in zero-G! Turn gravity on/off or scatter objects.
+                    </p>
+                </div>
+
+                <div class="antigravity-sandbox glass-card">
+                    <div class="sandbox-controls">
+                        <button class="btn btn-secondary btn-sm" id="physics-toggle-gravity">
+                            <i class="fa-solid fa-arrows-up-to-line"></i> Toggle Gravity
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="physics-scatter">
+                            <i class="fa-solid fa-explosion"></i> Scatter Objects
+                        </button>
+                        <button class="btn btn-secondary btn-sm" id="physics-reset">
+                            <i class="fa-solid fa-rotate"></i> Reset Position
+                        </button>
+                        <div class="physics-status">
+                            <span>Status: <strong id="physics-gravity-text" class="text-orange">Zero-G Active</strong></span>
+                        </div>
+                    </div>
+
+                    <div class="physics-canvas-container" id="physics-container">
+                        <canvas id="physics-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Getting Started / Quick Start Guide -->
+        <section class="section guide-section" id="getting-started">
+            <div class="container">
+                <div class="section-header text-center">
+                    <div class="section-tag"><i class="fa-solid fa-rocket"></i> Getting Started</div>
+                    <h2 class="section-title">Launch Ember IDE in Seconds</h2>
+                    <p class="section-description">
+                        Follow these simple steps to run Ember IDE locally on Linux, Windows, or macOS.
+                    </p>
+                </div>
+
+                <div class="guide-steps">
+                    <!-- Step 1 -->
+                    <div class="step-card glass-card">
+                        <div class="step-number">01</div>
+                        <div class="step-content">
+                            <h3>Install Dependencies</h3>
+                            <p>Install PyQt5, QScintilla, and required LSP/AI helper packages:</p>
+                            <div class="code-block">
+                                <code>pip install -r requirements.txt</code>
+                                <button class="copy-btn" data-copy="pip install -r requirements.txt"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="step-card glass-card">
+                        <div class="step-number">02</div>
+                        <div class="step-content">
+                            <h3>Launch Main Application</h3>
+                            <p>Run the entry point `main.py` using Python 3.10+:</p>
+                            <div class="code-block">
+                                <code>python main.py</code>
+                                <button class="copy-btn" data-copy="python main.py"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="step-card glass-card">
+                        <div class="step-number">03</div>
+                        <div class="step-content">
+                            <h3>Run Verification Suite</h3>
+                            <p>Execute the automated headless smoke test suite:</p>
+                            <div class="code-block">
+                                <code>python tests/smoke_test.py</code>
+                                <button class="copy-btn" data-copy="python tests/smoke_test.py"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-container">
+            <div class="footer-brand">
+                <div class="brand">
+                    <div class="brand-icon">
+                        <i class="fa-solid fa-fire-flame-curved"></i>
+                    </div>
+                    <span class="brand-name">Ember<span class="highlight">IDE</span></span>
+                </div>
+                <p>Next-Generation AI-Powered Polyglot Development Environment.</p>
+            </div>
+
+            <div class="footer-links">
+                <h4>Navigation</h4>
+                <a href="#features">Features</a>
+                <a href="#flame-ai">Flame AI</a>
+                <a href="#screenshots">Screenshots</a>
+                <a href="#antigravity">Anti-Gravity Sandbox</a>
+                <a href="#getting-started">Quick Start</a>
+            </div>
+
+            <div class="footer-info">
+                <h4>Technology Stack</h4>
+                <p><i class="fa-brands fa-python"></i> Python 3.10+</p>
+                <p><i class="fa-solid fa-desktop"></i> PyQt5 & QScintilla</p>
+                <p><i class="fa-solid fa-wand-magic-sparkles"></i> OpenAI API / Offline Mock</p>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <div class="container">
+                <p>&copy; 2025 Ember IDE Project. Built with Flame AI Conversion Engine.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Lightbox Modal for Screenshots -->
+    <div class="lightbox-modal" id="lightbox-modal">
+        <span class="lightbox-close" id="lightbox-close">&times;</span>
+        <img class="lightbox-content" id="lightbox-img" alt="Enlarged Screenshot">
+        <div class="lightbox-caption" id="lightbox-caption"></div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="script.js"></script>
+</body>
+</html>
