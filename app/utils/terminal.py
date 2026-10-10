@@ -278,6 +278,8 @@ class _TermState:
     saved_row: int = 0
     saved_col: int = 0
 
+    scrollback: list = field(default_factory=list)
+    max_scrollback: int = 2000
     buffer: list = field(default_factory=list)
     dirty: bool = True
 
@@ -289,32 +291,61 @@ class _TermState:
             self.buffer.append([Cell() for _ in range(self.cols)])
 
     def resize(self, cols: int, rows: int):
-        old = self.buffer
         self.cols = cols
         self.rows = rows
         self.scroll_bottom = rows - 1
+
+        # Resize width of existing lines
+        for row in self.scrollback:
+            if len(row) < cols:
+                row.extend([Cell() for _ in range(cols - len(row))])
+            elif len(row) > cols:
+                del row[cols:]
+
+        for row in self.buffer:
+            if len(row) < cols:
+                row.extend([Cell() for _ in range(cols - len(row))])
+            elif len(row) > cols:
+                del row[cols:]
+
+        # Adjust height of active screen
+        if len(self.buffer) < rows:
+            while len(self.buffer) < rows:
+                if self.scrollback:
+                    self.buffer.insert(0, self.scrollback.pop())
+                else:
+                    self.buffer.append([Cell() for _ in range(cols)])
+        elif len(self.buffer) > rows:
+            while len(self.buffer) > rows:
+                popped = self.buffer.pop(0)
+                self.scrollback.append(popped)
+                if len(self.scrollback) > self.max_scrollback:
+                    self.scrollback.pop(0)
+
         self.cursor_row = min(self.cursor_row, rows - 1)
         self.cursor_col = min(self.cursor_col, cols - 1)
-        self.buffer = []
-        for r in range(rows):
-            previous = old[r] if r < len(old) else []
-            self.buffer.append(
-                previous[:cols] + [Cell() for _ in range(max(0, cols - len(previous)))]
-            )
         self.dirty = True
 
     def scroll_up(self, n: int = 1):
         for _ in range(n):
-            if self.scroll_top < len(self.buffer):
-                del self.buffer[self.scroll_top]
-            self.buffer.insert(self.scroll_top, [Cell() for _ in range(self.cols)])
+            if self.scroll_top == 0:
+                if self.buffer:
+                    popped = self.buffer.pop(0)
+                    self.scrollback.append(popped)
+                    if len(self.scrollback) > self.max_scrollback:
+                        self.scrollback.pop(0)
+            else:
+                if self.scroll_top < len(self.buffer):
+                    del self.buffer[self.scroll_top]
+            target_idx = min(self.scroll_bottom, max(0, len(self.buffer)))
+            self.buffer.insert(target_idx, [Cell() for _ in range(self.cols)])
         self.dirty = True
 
     def scroll_down(self, n: int = 1):
         for _ in range(n):
             if self.scroll_bottom < len(self.buffer):
                 del self.buffer[self.scroll_bottom]
-            self.buffer.insert(self.scroll_bottom, [Cell() for _ in range(self.cols)])
+            self.buffer.insert(self.scroll_top, [Cell() for _ in range(self.cols)])
         self.dirty = True
 
     def erase_line(self, mode: int = 0):
@@ -342,7 +373,8 @@ class _TermState:
             self.erase_line(1)
             for r in range(0, self.cursor_row):
                 self.buffer[r] = [Cell() for _ in range(self.cols)]
-        elif mode == 2:
+        elif mode in (2, 3):
+            self.scrollback.clear()
             self.buffer = [[Cell() for _ in range(self.cols)] for _ in range(self.rows)]
             self.cursor_row = 0
             self.cursor_col = 0
@@ -691,6 +723,10 @@ class _ShellProcess(QObject):
             pid, fd = pty.fork()
             if pid == 0:
                 # Child
+                try:
+                    os.setsid()
+                except Exception:
+                    pass
                 os.environ.update(env)
                 os.environ["TERM"] = "xterm-256color"
                 os.environ["COLUMNS"] = str(self._cols)
@@ -749,6 +785,8 @@ class _ShellProcess(QObject):
                 pass
         elif self._proc and self._proc.stdin:
             try:
+                if not self._using_pty and data == b"\r":
+                    data = b"\r\n"
                 self._proc.stdin.write(data)
                 self._proc.stdin.flush()
             except (OSError, BrokenPipeError):
@@ -768,9 +806,9 @@ class _ShellProcess(QObject):
         try:
             if self._using_pty and not is_windows() and self._pid > 0:
                 try:
-                    os.killpg(os.getpgid(self._pid), signal.SIGTERM)
-                except (AttributeError, OSError):
-                    os.kill(self._pid, signal.SIGTERM)
+                    os.kill(self._pid, signal.SIGKILL)
+                except OSError:
+                    pass
                 if self._fd >= 0:
                     try:
                         os.close(self._fd)
@@ -798,7 +836,19 @@ class _ShellProcess(QObject):
                         except OSError:
                             break
                 try:
-                    _, status = os.waitpid(self._pid, 0)
+                    import time
+                    status = 0
+                    for _ in range(5):
+                        wpid, status = os.waitpid(self._pid, os.WNOHANG)
+                        if wpid != 0:
+                            break
+                        time.sleep(0.02)
+                    else:
+                        try:
+                            os.kill(self._pid, signal.SIGKILL)
+                            os.waitpid(self._pid, 0)
+                        except Exception:
+                            pass
                     rc = os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
                 except Exception:
                     rc = 0
@@ -816,10 +866,16 @@ class _ShellProcess(QObject):
                 p = self._proc
                 if p and p.stdout:
                     while not self._stop:
-                        chunk = p.stdout.read(8192)
-                        if not chunk:
+                        try:
+                            if hasattr(p.stdout, "read1"):
+                                chunk = p.stdout.read1(1024)
+                            else:
+                                chunk = p.stdout.read(1)
+                            if not chunk:
+                                break
+                            self.output.emit(chunk.decode("utf-8", errors="replace"))
+                        except (OSError, ValueError):
                             break
-                        self.output.emit(chunk.decode("utf-8", errors="replace"))
                 if p:
                     p.wait()
                     self.closed.emit(p.returncode or 0)
@@ -911,6 +967,42 @@ class _TerminalView(QPlainTextEdit):
     def wheelEvent(self, event) -> None:
         super().wheelEvent(event)
 
+    def contextMenuEvent(self, event) -> None:  # noqa: N802
+        from PyQt5.QtWidgets import QMenu, QApplication
+        menu = QMenu(self)
+
+        act_copy = menu.addAction("Copy")
+        act_copy.setShortcut("Ctrl+Shift+C")
+        act_copy.setEnabled(self.textCursor().hasSelection())
+
+        act_paste = menu.addAction("Paste")
+        act_paste.setShortcut("Ctrl+Shift+V")
+
+        menu.addSeparator()
+
+        act_select_all = menu.addAction("Select All")
+        act_select_all.setShortcut("Ctrl+A")
+
+        act_clear = menu.addAction("Clear Terminal")
+
+        chosen = menu.exec_(event.globalPos())
+        if chosen == act_copy:
+            QApplication.clipboard().setText(self.textCursor().selectedText())
+        elif chosen == act_paste:
+            text = QApplication.clipboard().text()
+            term_widget = self.parentWidget()
+            if hasattr(term_widget, "_proc") and term_widget._proc and text:
+                term_widget._proc.send(text)
+        elif chosen == act_select_all:
+            self.selectAll()
+        elif chosen == act_clear:
+            term_widget = self.parentWidget()
+            if hasattr(term_widget, "_proc") and term_widget._proc:
+                term_widget._proc.send_bytes(b"\x1b[H\x1b[2J")
+            if hasattr(term_widget, "_term") and term_widget._term:
+                term_widget._term.erase_display(2)
+                term_widget._render_view()
+
 
 # ---------------------------------------------------------------------------
 # Terminal widget — the full terminal emulator
@@ -930,6 +1022,7 @@ class TerminalWidget(QWidget):
         self._history_index = 0
         self._retired: List[_ShellProcess] = []
         self._input_buf = ""  # line buffer for command echo suppression
+        self._is_stopping = False
 
         # --- Font ---
         self._font = pick_monospace_font(11)
@@ -1050,9 +1143,11 @@ class TerminalWidget(QWidget):
                 self._proc.send(str(request) + "\n")
 
     def run_shell(self) -> None:
+        self._is_stopping = False
         self._start_shell()
 
     def stop(self) -> None:
+        self._is_stopping = True
         if self._proc:
             self._proc.stop()
         if self._thread.isRunning():
@@ -1126,6 +1221,8 @@ class TerminalWidget(QWidget):
                 self._proc.resize(rows, cols)
 
     def _start_shell(self) -> None:
+        if self._is_stopping:
+            return
         if self._proc is not None:
             self._proc.stop()
             for callback in (self._proc.start, self._proc.run):
@@ -1170,19 +1267,35 @@ class TerminalWidget(QWidget):
         """Render terminal buffer state from _TermState with full ANSI cell formatting to QPlainTextEdit."""
         if not self._term.dirty:
             return
-        self._term.dirty = False
 
         cursor = self._view.textCursor()
+        if cursor.hasSelection():
+            # Don't wipe active selection while user is selecting text
+            return
+
+        self._term.dirty = False
+
+        sb = self._view.verticalScrollBar()
+        at_bottom = (sb.value() >= sb.maximum() - 10) or (sb.maximum() == 0)
+
+        cursor.beginEditBlock()
         cursor.movePosition(QTextCursor.Start)
         cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
 
-        for row_idx, row in enumerate(self._term.buffer):
+        all_rows = self._term.scrollback + self._term.buffer
+
+        for row_idx, row in enumerate(all_rows):
             spans = []
             curr_text = ""
             curr_cell = None
 
             for cell in row:
-                if curr_cell is None or (cell.fg == curr_cell.fg and cell.bg == curr_cell.bg and cell.bold == curr_cell.bold and cell.underline == curr_cell.underline):
+                if curr_cell is None or (
+                    cell.fg == curr_cell.fg and
+                    cell.bg == curr_cell.bg and
+                    cell.bold == curr_cell.bold and
+                    cell.underline == curr_cell.underline
+                ):
                     curr_text += cell.char
                     curr_cell = cell
                 else:
@@ -1206,11 +1319,14 @@ class TerminalWidget(QWidget):
                     fmt.setFontUnderline(True)
                 cursor.insertText(span_text, fmt)
 
-            if row_idx < len(self._term.buffer) - 1:
+            if row_idx < len(all_rows) - 1:
                 cursor.insertText("\n", QTextCharFormat())
 
+        cursor.endEditBlock()
         self._view.setTextCursor(cursor)
-        self._view.verticalScrollBar().setValue(self._view.verticalScrollBar().maximum())
+
+        if at_bottom:
+            sb.setValue(sb.maximum())
 
     def _on_key(self, event: QKeyEvent) -> None:
         """Forward keyboard input to the shell."""
@@ -1221,29 +1337,36 @@ class TerminalWidget(QWidget):
         mods = event.modifiers()
         text = event.text()
 
-        # Ctrl+C — interrupt
-        if key == Qt.Key_C and mods & Qt.ControlModifier:
-            self._proc.send_bytes(b"\x03")
+        # Copy: Ctrl+C (with selection) or Ctrl+Shift+C
+        if key == Qt.Key_C and (mods & Qt.ControlModifier):
+            if (mods & Qt.ShiftModifier) or self._view.textCursor().hasSelection():
+                sel = self._view.textCursor().selectedText()
+                if sel:
+                    from PyQt5.QtWidgets import QApplication
+                    QApplication.clipboard().setText(sel)
+                return
+
+        # Paste: Ctrl+V or Ctrl+Shift+V
+        if key == Qt.Key_V and (mods & Qt.ControlModifier):
+            from PyQt5.QtWidgets import QApplication
+            clip_text = QApplication.clipboard().text()
+            if clip_text:
+                self._proc.send(clip_text)
             return
 
-        # Ctrl+L — clear screen
-        if key == Qt.Key_L and mods & Qt.ControlModifier:
+        # Clear: Ctrl+L
+        if key == Qt.Key_L and (mods & Qt.ControlModifier):
             self._proc.send_bytes(b"\x1b[H\x1b[2J")
             self._term.erase_display(2)
+            self._render_view()
             return
 
-        # Ctrl+V — paste from clipboard
-        if key == Qt.Key_V and mods & Qt.ControlModifier:
-            from PyQt5.QtWidgets import QApplication
-            clipboard = QApplication.clipboard()
-            text = clipboard.text()
-            if text:
-                self._proc.send(text)
-            return
-
-        # Ctrl+A — select all
-        if key == Qt.Key_A and mods & Qt.ControlModifier:
-            return  # let default handle it
+        # Control + Letter keys (A-Z) -> ASCII 1..26 (Ctrl+A, Ctrl+E, Ctrl+D, Ctrl+R, Ctrl+U, Ctrl+K, Ctrl+W, Ctrl+Z, etc.)
+        if (mods & Qt.ControlModifier) and not (mods & Qt.AltModifier):
+            if Qt.Key_A <= key <= Qt.Key_Z:
+                ctrl_code = bytes([key - Qt.Key_A + 1])
+                self._proc.send_bytes(ctrl_code)
+                return
 
         # Arrow keys
         if key == Qt.Key_Up:
@@ -1328,6 +1451,8 @@ class TerminalWidget(QWidget):
         if sender is not None and sender in self._retired:
             self._retired.remove(sender)
             return
+        if self._is_stopping:
+            return
         if sender is self._proc:
             self._stop_btn.setEnabled(False)
             QTimer.singleShot(500, self._start_shell)
@@ -1354,6 +1479,7 @@ class TerminalWidget(QWidget):
         return super().eventFilter(obj, event)
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._is_stopping = True
         self._refresh_timer.stop()
         self.stop()
         super().closeEvent(event)
